@@ -1,0 +1,39 @@
+{
+  "name": "@dmontgomery40/deepseek-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for DeepSeek API",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "deepseek-mcp-server": "./build/index.js"
+  },
+  "files": [
+    "build/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "typescript": "^5.2.2"
+  },
+  "author": "DMontgomery40",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DMontgomery40/deepseek-mcp-server"
+  },
+  "keywords": [
+    "mcp",
+    "deepseek",
+    "ai",
+    "llm"
+  ]
+}
