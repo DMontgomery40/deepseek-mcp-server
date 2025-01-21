@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server for the DeepSeek API, allowing seamless in
 ## Installation
 
 ```bash
-npm install -g @dmontgomery40/deepseek-mcp-server
+npm install -g deepseek-mcp-server
 ```
 
 ## Configuration
@@ -29,7 +29,11 @@ Add this to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "deepseek": {
-      "command": "deepseek-mcp-server",
+      "command": "npx",
+      "args": [
+        "-y",
+        "deepseek-mcp-server"
+      ],
       "env": {
         "DEEPSEEK_API_KEY": "your-api-key"
       }
