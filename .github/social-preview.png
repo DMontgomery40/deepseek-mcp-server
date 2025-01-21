@@ -1,0 +1,7 @@
+<!-- Creating a 1280x640 PNG with the whale logo would be binary data, which I can't generate directly. Instead, you'll need to: -->
+
+1. Go to GitHub repository settings
+2. Click on "Social preview" under the repository name
+3. Click "Edit"
+4. Upload the assets/favicon-32x32.png file
+5. GitHub will help resize and position it appropriately
