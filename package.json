@@ -23,6 +23,7 @@
   "devDependencies": {
     "@types/dotenv": "^6.1.1",
     "@types/node": "^20.17.14",
+    "ts-node": "^10.9.2",
     "typescript": "^5.2.2"
   },
   "author": "DMontgomery40",

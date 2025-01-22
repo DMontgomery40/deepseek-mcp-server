@@ -53,6 +53,38 @@ Add this to your `claude_desktop_config.json`:
   - Frequency penalty
 
 
+## Local Testing
+
+To test locally without Claude Desktop:
+
+1. Clone and build the project:
+   ```bash
+   git clone https://github.com/DMontgomery40/deepseek-mcp-server.git
+   cd deepseek-mcp-server
+   npm install
+   npm run build
+   ```
+
+2. Create a `.env` file with your API key:
+   ```
+   DEEPSEEK_API_KEY=your-api-key
+   ```
+
+3. Run the server:
+   ```bash
+   node build/index.js
+   ```
+
+4. In another terminal, use the MCP Inspector to test:
+   ```bash
+   npx @modelcontextprotocol/inspector connect --command "node" --args "build/index.js"
+   ```
+
+   This will open an interactive session where you can:
+   - List available tools with `/tools`
+   - Try the chat completion with `/call chat-completion {"messages": [{"role": "user", "content": "Hello!"}]}`
+   - View configuration with `/read model-config://main`
+
 ## Testing with MCP Inspector
 
 You can test the server locally using the MCP Inspector tool:

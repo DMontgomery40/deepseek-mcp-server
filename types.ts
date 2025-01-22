@@ -5,10 +5,7 @@ export interface DeepSeekResponse {
   model: string;
   choices: Array<{
     index: number;
-    message: {
-      role: 'assistant';
-      content: string;
-    };
+    message: ChatMessage;
     finish_reason: 'stop' | 'length' | 'content_filter';
   }>;
   usage?: {
