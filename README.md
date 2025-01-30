@@ -1,20 +1,35 @@
 # Smithery.ai
 
-[![npm version](https://img.shields.io/npm/v/my-package)](https://www.npmjs.com/package/my-package)
-[![npm downloads](https://img.shields.io/npm/dm/my-package)](https://www.npmjs.com/package/my-package)
-[![GitHub issues](https://img.shields.io/github/issues/your-username/repo-name)](https://github.com/your-username/repo-name/issues)
-[![GitHub forks](https://img.shields.io/github/forks/your-username/repo-name)](https://github.com/your-username/repo-name/network)
-[![GitHub stars](https://img.shields.io/github/stars/your-username/repo-name)](https://github.com/your-username/repo-name/stargazers)
-[![GitHub license](https://img.shields.io/github/license/your-username/repo-name)](https://github.com/your-username/repo-name/blob/main/LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/repo-name/ci.yml?branch=main)](https://github.com/your-username/repo-name/actions)
-[![codecov](https://codecov.io/gh/your-username/repo-name/branch/main/graph/badge.svg?token=YOUR_TOKEN_HERE)](https://codecov.io/gh/your-username/repo-name)
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/YOUR_PROJECT_ID)](https://www.codacy.com/gh/your-username/repo-name/dashboard)
-[![Code Climate Maintainability](https://img.shields.io/codeclimate/maintainability/your-username/repo-name)](https://codeclimate.com/github/your-username/repo-name)
-[![Bundlephobia minzip](https://img.shields.io/bundlephobia/minzip/my-package)](https://bundlephobia.com/result?p=my-package)
-[![GitHub last commit](https://img.shields.io/github/last-commit/your-username/repo-name)](https://github.com/your-username/repo-name/commits/main)
-[![Node version](https://img.shields.io/node/v/my-package)](https://www.npmjs.com/package/my-package)
-[![Contributors](https://img.shields.io/github/contributors/your-username/repo-name)](https://github.com/your-username/repo-name/graphs/contributors)
-[![Discord](https://img.shields.io/discord/your-discord-channel-ID?label=chat%20on%20Discord)](https://discord.gg/YOUR_SERVER_INVITE_LINK)
+# deepseek-mcp-server
+
+[![npm version](https://img.shields.io/npm/v/deepseek-mcp-server)](https://www.npmjs.com/package/deepseek-mcp-server)
+[![npm downloads](https://img.shields.io/npm/dm/deepseek-mcp-server)](https://www.npmjs.com/package/deepseek-mcp-server)
+[![GitHub issues](https://img.shields.io/github/issues/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/issues)
+[![GitHub forks](https://img.shields.io/github/forks/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/network)
+[![GitHub stars](https://img.shields.io/github/stars/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/stargazers)
+[![GitHub license](https://img.shields.io/github/license/DMontgomery40/deepseek-mcp-server?color=blue)](https://github.com/DMontgomery40/deepseek-mcp-server/blob/main/LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/DMontgomery40/deepseek-mcp-server/ci.yml?branch=main)](https://github.com/DMontgomery40/deepseek-mcp-server/actions)
+(https://codecov.io/gh/DMontgomery40/deepseek-mcp-server)
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/YOUR_CODACY_PROJECT_ID)](https://www.codacy.com/gh/DMontgomery40/deepseek-mcp-server/dashboard)
+[![Code Climate Maintainability](https://img.shields.io/codeclimate/maintainability/DMontgomery40/deepseek-mcp-server)](https://codeclimate.com/github/DMontgomery40/deepseek-mcp-server)
+[![Bundlephobia minzip](https://img.shields.io/bundlephobia/minzip/deepseek-mcp-server)](https://bundlephobia.com/result?p=deepseek-mcp-server)
+[![GitHub last commit](https://img.shields.io/github/last-commit/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/commits/main)
+[![Node version](https://img.shields.io/node/v/deepseek-mcp-server)](https://www.npmjs.com/package/deepseek-mcp-server)
+[![Contributors](https://img.shields.io/github/contributors/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/graphs/contributors)
+
+A short description of your project…
+
+## Installation
+
+\`\`\`bash
+echo "Install via npm" && npm install deepseek-mcp-server
+\`\`\`
+
+## Usage
+
+...
+
+
 
 A short description of your project goes here. Enjoy all those badges!
 
