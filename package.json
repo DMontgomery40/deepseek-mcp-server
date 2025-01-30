@@ -1,6 +1,6 @@
 {
   "name": "deepseek-mcp-server",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Model Context Protocol server for DeepSeek's advanced language models.",
   "type": "module",
   "main": "build/index.js",
