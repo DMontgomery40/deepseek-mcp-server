@@ -2,6 +2,8 @@
 
 A Model Context Protocol (MCP) server for the DeepSeek API, allowing seamless integration of DeepSeek's powerful language models with MCP-compatible applications like Claude Desktop.
 
+## *Anonymously*  use DeepSeek API  --  Only a proxy is seen on the other side 
+
 <a href="https://glama.ai/mcp/servers/asht4rqltn"><img width="380" height="200" src="https://glama.ai/mcp/servers/asht4rqltn/badge" alt="DeepSeek Server MCP server" /></a>
 <a href="https://smithery.ai/server/@dmontgomery40/deepseek-mcp-server"><img alt="Smithery Badge" src="https://smithery.ai/badge/@dmontgomery40/deepseek-mcp-server"></a>
 
