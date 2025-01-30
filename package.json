@@ -16,7 +16,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "latest",

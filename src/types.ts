@@ -35,6 +35,22 @@ export interface ChatCompletionArgs {
 }
 
 // Type guard for chat completion arguments
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ModelConfig {
+  id: string;
+  name: string;
+  type: 'number' | 'integer' | 'string' | 'boolean';
+  description: string;
+  default?: any;
+  minimum?: number;
+  maximum?: number;
+}
+
 export function isValidChatCompletionArgs(args: unknown): args is ChatCompletionArgs {
   if (!args || typeof args !== 'object') {
     return false;

@@ -1,19 +1,14 @@
 #!/usr/bin/env node
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  ListToolsRequestSchema,
-  CallToolRequestSchema,
-  ErrorCode,
-  McpError
-} from "@modelcontextprotocol/sdk/types.js";
-import axios, { AxiosInstance } from "axios";
+import { z } from "zod";
+import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import dotenv from "dotenv";
 import { 
   DeepSeekResponse,
-  ChatCompletionArgs,
-  isValidChatCompletionArgs,
-  ChatMessage
+  ChatMessage,
+  ModelInfo,
+  ModelConfig
 } from "./types.js";
 
 dotenv.config();
@@ -31,21 +26,77 @@ const API_CONFIG = {
   }
 } as const;
 
+const MODELS: ModelInfo[] = [
+  {
+    id: "deepseek-chat",
+    name: "DeepSeek Chat",
+    description: "General-purpose chat model optimized for dialogue"
+  },
+  {
+    id: "deepseek-reasoner",
+    name: "DeepSeek Reasoner",
+    description: "Model optimized for reasoning and problem-solving"
+  }
+];
+
+const MODEL_CONFIGS: ModelConfig[] = [
+  {
+    id: "temperature",
+    name: "Temperature",
+    type: "number",
+    description: "Controls randomness in the output (0.0 to 2.0)",
+    default: 0.7,
+    minimum: 0,
+    maximum: 2
+  },
+  {
+    id: "max_tokens",
+    name: "Maximum Tokens",
+    type: "integer",
+    description: "Maximum number of tokens to generate",
+    default: 8000,
+    minimum: 1
+  },
+  {
+    id: "top_p",
+    name: "Top P",
+    type: "number",
+    description: "Controls diversity via nucleus sampling (0.0 to 1.0)",
+    default: 1.0,
+    minimum: 0,
+    maximum: 1
+  },
+  {
+    id: "frequency_penalty",
+    name: "Frequency Penalty",
+    type: "number",
+    description: "Reduces repetition by penalizing frequent tokens (-2.0 to 2.0)",
+    default: 0.1,
+    minimum: -2,
+    maximum: 2
+  },
+  {
+    id: "presence_penalty",
+    name: "Presence Penalty",
+    type: "number",
+    description: "Reduces repetition by penalizing used tokens (-2.0 to 2.0)",
+    default: 0,
+    minimum: -2,
+    maximum: 2
+  }
+];
+
 class DeepSeekServer {
-  private server: Server;
+  private server: McpServer;
   private axiosInstance: AxiosInstance;
+  private conversationHistory: ChatMessage[] = [];
 
   constructor() {
-    this.server = new Server({
+    this.server = new McpServer({
       name: "deepseek-mcp-server",
       version: "0.1.0"
-    }, {
-      capabilities: {
-        tools: {}
-      }
     });
 
-    // Configure axios with defaults
     this.axiosInstance = axios.create({
       baseURL: API_CONFIG.BASE_URL,
       headers: {
@@ -54,123 +105,105 @@ class DeepSeekServer {
       }
     });
 
-    this.setupHandlers();
+    // Set up error handling first
     this.setupErrorHandling();
+    
+    // Then set up resources and tools
+    this.setupResources();
+    this.setupTools();
   }
 
   private setupErrorHandling(): void {
-    this.server.onerror = (error) => {
-      console.error("[MCP Error]", error);
-    };
+    // Handle API errors
+    this.axiosInstance.interceptors.response.use(
+      (response: AxiosResponse) => response,
+      (error: AxiosError) => {
+        console.error("[API Error]", error.response?.data || error.message);
+        throw error;
+      }
+    );
 
+    // Handle process termination
     process.on('SIGINT', async () => {
+      console.error("Shutting down...");
       await this.server.close();
       process.exit(0);
     });
+
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (error) => {
+      console.error("[Uncaught Exception]", error);
+      process.exit(1);
+    });
   }
 
-  private setupHandlers(): void {
-    this.setupToolHandlers();
-  }
-
-  private setupToolHandlers(): void {
-    this.server.setRequestHandler(
-      ListToolsRequestSchema,
-      async () => ({
-        tools: [{
-          name: "chat_completion",
-          description: "Generate a chat completion using DeepSeek's API",
-          inputSchema: {
-            type: "object",
-            properties: {
-              message: {
-                type: "string",
-                description: "The message to send to the model"
-              },
-              messages: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    role: {
-                      type: "string",
-                      enum: ["system", "user", "assistant"],
-                      description: "Role of the message sender"
-                    },
-                    content: {
-                      type: "string",
-                      description: "Content of the message"
-                    }
-                  },
-                  required: ["role", "content"]
-                }
-              },
-              model: {
-                type: "string",
-                description: "Model to use for completion (default: deepseek-reasoner)"
-              },
-              temperature: {
-                type: "number",
-                minimum: 0,
-                maximum: 2,
-                description: "Sampling temperature (default: 0.7)"
-              },
-              max_tokens: {
-                type: "integer",
-                minimum: 1,
-                description: "Maximum number of tokens to generate (default: 8000)"
-              },
-              top_p: {
-                type: "number",
-                minimum: 0,
-                maximum: 1,
-                description: "Nucleus sampling parameter (default: 1.0)"
-              },
-              frequency_penalty: {
-                type: "number",
-                minimum: -2,
-                maximum: 2,
-                description: "Penalty for token frequency (default: 0.1)"
-              },
-              presence_penalty: {
-                type: "number",
-                minimum: -2,
-                maximum: 2,
-                description: "Penalty for token presence (default: 0)"
-              }
-            },
-            oneOf: [
-              { required: ["message"] },
-              { required: ["messages"] }
-            ]
-          }
+  private setupResources(): void {
+    // Models resource
+    this.server.resource(
+      "models",
+      new ResourceTemplate("models://{modelId}", { 
+        list: async () => ({
+          resources: MODELS.map(model => ({
+            uri: `models://${model.id}`,
+            name: model.name,
+            description: model.description
+          }))
+        })
+      }),
+      async (uri, { modelId }) => ({
+        contents: [{
+          uri: uri.href,
+          text: JSON.stringify(MODELS.find(m => m.id === modelId), null, 2)
         }]
       })
     );
 
-    this.server.setRequestHandler(
-      CallToolRequestSchema,
-      async (request) => {
-        if (request.params.name !== "chat_completion") {
-          throw new McpError(
-            ErrorCode.MethodNotFound,
-            `Unknown tool: ${request.params.name}`
-          );
-        }
+    // Model config resource
+    this.server.resource(
+      "model-config",
+      new ResourceTemplate("config://{modelId}", {
+        list: async () => ({
+          resources: MODEL_CONFIGS.map(config => ({
+            uri: `config://${config.id}`,
+            name: config.name,
+            description: config.description
+          }))
+        })
+      }),
+      async (uri, { modelId }) => ({
+        contents: MODEL_CONFIGS.map(config => ({
+          uri: `config://${modelId}/${config.id}`,
+          text: JSON.stringify(config, null, 2)
+        }))
+      })
+    );
+  }
 
-        const args = request.params.arguments as ChatCompletionArgs;
+  private setupTools(): void {
+    // Chat completion tool
+    this.server.tool(
+      "chat_completion",
+      {
+        message: z.string().optional(),
+        messages: z.array(z.object({
+          role: z.enum(['system', 'user', 'assistant']),
+          content: z.string()
+        })).optional(),
+        model: z.string().default('deepseek-reasoner'),
+        temperature: z.number().min(0).max(2).default(0.7),
+        max_tokens: z.number().positive().int().default(8000),
+        top_p: z.number().min(0).max(1).default(1.0),
+        frequency_penalty: z.number().min(-2).max(2).default(0.1),
+        presence_penalty: z.number().min(-2).max(2).default(0)
+      },
+      async (args) => {
         let messages: ChatMessage[];
-
-        // Handle simple message input
-        if (typeof args?.message === 'string') {
+        if (args.message) {
           messages = [{ role: 'user', content: args.message }];
-        } else if (Array.isArray(args?.messages)) {
+        } else if (args.messages) {
           messages = args.messages;
         } else {
-          throw new McpError(
-            ErrorCode.InvalidParams,
-            "Either 'message' or 'messages' must be provided"
-          );
+          throw new Error("Either 'message' or 'messages' must be provided");
         }
 
         try {
@@ -178,12 +211,12 @@ class DeepSeekServer {
             API_CONFIG.ENDPOINTS.CHAT,
             {
               messages,
-              model: args?.model || API_CONFIG.DEFAULT_MODEL,
-              temperature: args?.temperature ?? 0.7,
-              max_tokens: args?.max_tokens ?? 8000,
-              top_p: args?.top_p ?? 1,
-              frequency_penalty: args?.frequency_penalty ?? 0.1,
-              presence_penalty: args?.presence_penalty ?? 0
+              model: args.model,
+              temperature: args.temperature,
+              max_tokens: args.max_tokens,
+              top_p: args.top_p,
+              frequency_penalty: args.frequency_penalty,
+              presence_penalty: args.presence_penalty
             }
           );
 
@@ -194,14 +227,118 @@ class DeepSeekServer {
             }]
           };
         } catch (error) {
-          if (axios.isAxiosError(error)) {
+          console.error("Error with deepseek-reasoner, falling back to deepseek-chat");
+          
+          try {
+            const fallbackResponse = await this.axiosInstance.post<DeepSeekResponse>(
+              API_CONFIG.ENDPOINTS.CHAT,
+              {
+                messages,
+                model: 'deepseek-chat',
+                temperature: args.temperature,
+                max_tokens: args.max_tokens,
+                top_p: args.top_p,
+                frequency_penalty: args.frequency_penalty,
+                presence_penalty: args.presence_penalty
+              }
+            );
+
             return {
               content: [{
                 type: "text",
-                text: `DeepSeek API error: ${error.response?.data?.error?.message ?? error.message}`
-              }],
-              isError: true
+                text: "Note: Fallback to deepseek-chat due to reasoner error.\n\n" + 
+                      fallbackResponse.data.choices[0].message.content
+              }]
             };
+          } catch (fallbackError) {
+            if (axios.isAxiosError(fallbackError)) {
+              throw new Error(`DeepSeek API error: ${fallbackError.response?.data?.error?.message ?? fallbackError.message}`);
+            }
+            throw fallbackError;
+          }
+        }
+      }
+    );
+
+    // Multi-turn chat tool
+    this.server.tool(
+      "multi_turn_chat",
+      {
+        messages: z.union([
+          z.string(),
+          z.array(z.object({
+            role: z.enum(['system', 'user', 'assistant']),
+            content: z.object({
+              type: z.literal('text'),
+              text: z.string()
+            })
+          }))
+        ]).transform(messages => {
+          if (typeof messages === 'string') {
+            return [{
+              role: 'user' as const,
+              content: {
+                type: 'text' as const,
+                text: messages
+              }
+            }];
+          }
+          return messages;
+        }),
+        model: z.string().default('deepseek-chat'),
+        temperature: z.number().min(0).max(2).default(0.7),
+        max_tokens: z.number().positive().int().default(8000),
+        top_p: z.number().min(0).max(1).default(1.0),
+        frequency_penalty: z.number().min(-2).max(2).default(0.1),
+        presence_penalty: z.number().min(-2).max(2).default(0)
+      },
+      async (args) => {
+        try {
+          // Transform new messages
+          const newMessage = args.messages[0];
+          const transformedNewMessage = {
+            role: newMessage.role,
+            content: newMessage.content.text
+          };
+
+          // Add new message to history
+          this.conversationHistory.push(transformedNewMessage);
+
+          // Transform all messages for API
+          const transformedMessages = this.conversationHistory.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          }));
+
+          const response = await this.axiosInstance.post<DeepSeekResponse>(
+            API_CONFIG.ENDPOINTS.CHAT,
+            {
+              messages: transformedMessages,
+              model: args.model,
+              temperature: args.temperature,
+              max_tokens: args.max_tokens,
+              top_p: args.top_p,
+              frequency_penalty: args.frequency_penalty,
+              presence_penalty: args.presence_penalty
+            }
+          );
+
+          // Add assistant's response to history
+          const assistantMessage = {
+            role: 'assistant' as const,
+            content: response.data.choices[0].message.content
+          };
+          this.conversationHistory.push(assistantMessage);
+
+          return {
+            content: [{
+              type: "text",
+              text: assistantMessage.content
+            }]
+          };
+        } catch (error) {
+          if (axios.isAxiosError(error)) {
+            throw new Error(`DeepSeek API error: ${error.response?.data?.error?.message ?? error.message}`);
           }
           throw error;
         }
