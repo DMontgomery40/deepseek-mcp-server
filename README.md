@@ -1,3 +1,29 @@
+# Smithery.ai
+
+[![npm version](https://img.shields.io/npm/v/my-package)](https://www.npmjs.com/package/my-package)
+[![npm downloads](https://img.shields.io/npm/dm/my-package)](https://www.npmjs.com/package/my-package)
+[![GitHub issues](https://img.shields.io/github/issues/your-username/repo-name)](https://github.com/your-username/repo-name/issues)
+[![GitHub forks](https://img.shields.io/github/forks/your-username/repo-name)](https://github.com/your-username/repo-name/network)
+[![GitHub stars](https://img.shields.io/github/stars/your-username/repo-name)](https://github.com/your-username/repo-name/stargazers)
+[![GitHub license](https://img.shields.io/github/license/your-username/repo-name)](https://github.com/your-username/repo-name/blob/main/LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/your-username/repo-name/ci.yml?branch=main)](https://github.com/your-username/repo-name/actions)
+[![codecov](https://codecov.io/gh/your-username/repo-name/branch/main/graph/badge.svg?token=YOUR_TOKEN_HERE)](https://codecov.io/gh/your-username/repo-name)
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/YOUR_PROJECT_ID)](https://www.codacy.com/gh/your-username/repo-name/dashboard)
+[![Code Climate Maintainability](https://img.shields.io/codeclimate/maintainability/your-username/repo-name)](https://codeclimate.com/github/your-username/repo-name)
+[![Bundlephobia minzip](https://img.shields.io/bundlephobia/minzip/my-package)](https://bundlephobia.com/result?p=my-package)
+[![GitHub last commit](https://img.shields.io/github/last-commit/your-username/repo-name)](https://github.com/your-username/repo-name/commits/main)
+[![Node version](https://img.shields.io/node/v/my-package)](https://www.npmjs.com/package/my-package)
+[![Contributors](https://img.shields.io/github/contributors/your-username/repo-name)](https://github.com/your-username/repo-name/graphs/contributors)
+[![Discord](https://img.shields.io/discord/your-discord-channel-ID?label=chat%20on%20Discord)](https://discord.gg/YOUR_SERVER_INVITE_LINK)
+
+A short description of your project goes here. Enjoy all those badges!
+
+## Getting Started
+
+...
+
+
+
 # DeepSeek MCP Server
 
 A Model Context Protocol (MCP) server for the DeepSeek API, allowing seamless integration of DeepSeek's powerful language models with MCP-compatible applications like Claude Desktop.
