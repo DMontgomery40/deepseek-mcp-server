@@ -68,7 +68,7 @@ Add this to your `claude_desktop_config.json`:
 
 - If the primary model (R1) is down (called `deepseek-reasoner` in the server), the server will automatically attempt to try with v3 (called `deepseek-chat` in the server) 
 > Note: You can switch back and forth anytime as well, by just giving your prompt and saying "use `deepseek-reasoner`" or "use `deepseek-chat`"
-- V3 is recommended for general purpose use, while R1 is recommended for more technical and complex queries, primarily due to speed and token useage
+- V3 is recommended for general purpose use, while R1 is recommended for more technical and complex queries, primarily due to speed and token usage
 
 ###  Resource discovery for available models and configurations:
    * Custom model selection
