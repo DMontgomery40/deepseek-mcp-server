@@ -7,7 +7,7 @@ import {
   GetPromptRequestSchema,
   ErrorCode,
   McpError
-} from "@modelcontextprotocol/sdk/types";
+} from "@modelcontextprotocol/sdk/types.js";
 import axios from "axios";
 import dotenv from "dotenv";
 import { DeepSeekResponse, ChatMessage } from "./types";
@@ -18,32 +18,21 @@ dotenv.config();
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 if (!DEEPSEEK_API_KEY) throw new McpError(ErrorCode.InvalidRequest, "Missing DEEPSEEK_API_KEY");
 
+// Define prompt templates for protocol compliance
 const PROMPTS = {
-  "system": {
+  system: {
     name: "system",
     description: "Set system behavior for the AI",
     arguments: [
-      {
-        name: "content",
-        description: "System instruction",
-        required: true
-      }
+      { name: "content", description: "System instruction", required: true }
     ]
   },
-  "chat": {
+  chat: {
     name: "chat",
     description: "Chat with the AI",
     arguments: [
-      {
-        name: "message",
-        description: "User message",
-        required: true
-      },
-      {
-        name: "temperature",
-        description: "Response temperature (0-1)",
-        required: false
-      }
+      { name: "message", description: "User message", required: true },
+      { name: "temperature", description: "Response temperature (0-1)", required: false }
     ]
   }
 };
@@ -90,6 +79,43 @@ server.prompt(
     };
   }
 );
+
+// Register prompts/list handler
+server.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: Object.values(PROMPTS)
+}));
+
+// Register prompts/get handler
+server.server.setRequestHandler(GetPromptRequestSchema, async (request: any) => {
+  const prompt = PROMPTS[request.params.name as keyof typeof PROMPTS];
+  if (!prompt) {
+    throw new McpError(ErrorCode.InvalidRequest, `Prompt not found: ${request.params.name}`);
+  }
+  if (request.params.name === "system") {
+    return {
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: `[System Instruction]\n${request.params.arguments?.content ?? ""}`
+        }
+      }]
+    };
+  }
+  if (request.params.name === "chat") {
+    return {
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: request.params.arguments?.message ?? ""
+        }
+      }],
+      temperature: request.params.arguments?.temperature
+    };
+  }
+  throw new McpError(ErrorCode.InvalidRequest, "Unknown prompt type");
+});
 
 // Example: Register a chat-completion tool (update as needed)
 server.tool(
