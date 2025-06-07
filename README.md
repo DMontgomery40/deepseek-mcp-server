@@ -5,7 +5,6 @@ A Model Context Protocol (MCP) server for the DeepSeek API, allowing seamless in
 ## *Anonymously*  use DeepSeek API  --  Only a proxy is seen on the other side 
 
 <a href="https://glama.ai/mcp/servers/asht4rqltn"><img width="380" height="200" src="https://glama.ai/mcp/servers/asht4rqltn/badge" alt="DeepSeek Server MCP server" /></a>
-<a href="https://smithery.ai/server/@dmontgomery40/deepseek-mcp-server"><img alt="Smithery Badge" src="https://smithery.ai/badge/@dmontgomery40/deepseek-mcp-server"></a>
 
 
 [![npm version](https://img.shields.io/npm/v/deepseek-mcp-server)](https://www.npmjs.com/package/deepseek-mcp-server)
@@ -68,7 +67,7 @@ Add this to your `claude_desktop_config.json`:
 
 - If the primary model (R1) is down (called `deepseek-reasoner` in the server), the server will automatically attempt to try with v3 (called `deepseek-chat` in the server) 
 > Note: You can switch back and forth anytime as well, by just giving your prompt and saying "use `deepseek-reasoner`" or "use `deepseek-chat`"
-- V3 is recommended for general purpose use, while R1 is recommended for more technical and complex queries, primarily due to speed and token useage
+- V3 is recommended for general purpose use, while R1 is recommended for more technical and complex queries, primarily due to speed and token usage
 
 ###  Resource discovery for available models and configurations:
    * Custom model selection
