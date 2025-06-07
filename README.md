@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/dmontgomery40-deepseek-mcp-server-badge.png)](https://mseep.ai/app/dmontgomery40-deepseek-mcp-server)
+
 # DeepSeek MCP Server
 
 A Model Context Protocol (MCP) server for the DeepSeek API, allowing seamless integration of DeepSeek's powerful language models with MCP-compatible applications like Claude Desktop.
