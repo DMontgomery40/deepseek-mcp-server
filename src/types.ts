@@ -8,6 +8,11 @@ export interface DeepSeekResponse {
     message: {
       role: 'assistant';
       content: string;
+      reasoning_content?: string;
+    };
+    delta?: {
+      content?: string;
+      reasoning_content?: string;
     };
     finish_reason: 'stop' | 'length' | 'content_filter';
   }>;
@@ -18,9 +23,18 @@ export interface DeepSeekResponse {
   };
 }
 
+export interface Prompt {
+  content: string;
+  type: 'system' | 'user' | 'assistant';
+  reasoning?: boolean;
+  temperature?: number;
+  stop_sequences?: string[];
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  reasoning_content?: string;
 }
 
 export interface ChatCompletionArgs {
@@ -32,6 +46,8 @@ export interface ChatCompletionArgs {
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  reasoning_content?: string;
+  stream?: boolean;
 }
 
 // Type guard for chat completion arguments
@@ -56,7 +72,7 @@ export function isValidChatCompletionArgs(args: unknown): args is ChatCompletion
     return false;
   }
 
-  const { message, messages, model, temperature, max_tokens, top_p, frequency_penalty, presence_penalty } = args as ChatCompletionArgs;
+  const { message, messages, model, temperature, max_tokens, top_p, frequency_penalty, presence_penalty, reasoning_content, stream } = args as ChatCompletionArgs;
 
   // Must have either message or messages
   if (!message && !messages) {
@@ -112,6 +128,14 @@ export function isValidChatCompletionArgs(args: unknown): args is ChatCompletion
   }
 
   if (presence_penalty !== undefined && (typeof presence_penalty !== 'number' || presence_penalty < -2 || presence_penalty > 2)) {
+    return false;
+  }
+
+  if (reasoning_content !== undefined && typeof reasoning_content !== 'string') {
+    return false;
+  }
+
+  if (stream !== undefined && typeof stream !== 'boolean') {
     return false;
   }
 

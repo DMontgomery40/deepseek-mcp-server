@@ -1,6 +1,6 @@
 {
   "name": "deepseek-mcp-server",
-  "version": "0.2.1",
+  "version": "1.0.0",
   "description": "Model Context Protocol server for DeepSeek's advanced language models.",
   "type": "module",
   "main": "build/index.js",
@@ -20,12 +20,12 @@
     "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "latest",
+    "@modelcontextprotocol/sdk": "^1.12.1",
     "axios": "^1.6.0",
     "dotenv": "^16.3.1"
   },
   "devDependencies": {
-    "@types/node": "^20.8.0",
+    "@types/node": "^20.19.0",
     "typescript": "^5.2.2"
   },
   "author": "DMontgomery40",

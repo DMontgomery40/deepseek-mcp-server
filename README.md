@@ -99,8 +99,49 @@ This feature is particularly valuable for two key use cases:
 
 The implementation handles all context management and message formatting behind the scenes, letting you focus on the actual interaction rather than the technical details of maintaining conversation state.
 
+## Fill-in-the-Middle (FIM) Completion Tool
 
+The DeepSeek MCP Server now supports the FIM (Fill-in-the-Middle) completion endpoint, which is especially useful for code completion, refactoring, and filling in missing code blocks.
 
+**Limitations:**
+- The FIM endpoint has a 4,096 token (4k) context window. If your prefix + suffix + completion exceeds this, the request will be truncated or may fail.
+- FIM is best suited for code and structured text, not general conversation.
+
+### How to Use
+
+You can invoke the FIM tool via MCP clients that support tools, or programmatically. The tool is named `fim_completion` and accepts the following parameters:
+
+- `prefix` (string, required): The text before the missing section.
+- `suffix` (string, required): The text after the missing section.
+- `model` (string, optional, default: `deepseek-fim`): The FIM model to use.
+- `temperature` (number, optional, default: 0.7): Sampling temperature.
+- `max_tokens` (number, optional, default: 1024): Maximum tokens to generate for the middle section.
+- `top_p` (number, optional, default: 1.0): Top-p sampling parameter.
+- `frequency_penalty` (number, optional, default: 0.1): Frequency penalty.
+- `presence_penalty` (number, optional, default: 0): Presence penalty.
+- `stream` (boolean, optional, default: false): Whether to stream the response.
+
+#### Example Usage
+
+```json
+{
+  "tool": "fim_completion",
+  "params": {
+    "prefix": "def add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    ",
+    "suffix": "\n    return result\n",
+    "temperature": 0.2,
+    "max_tokens": 64
+  }
+}
+```
+
+The response will contain the generated code or text that fits between the prefix and suffix.
+
+**When to use FIM:**
+- Completing code blocks where the middle is missing
+- Refactoring code by providing the start and end, and letting the model fill in the logic
+- Generating boilerplate or repetitive code patterns
+- Any scenario where you want the model to generate content that fits between two known sections
 
 ## Testing with MCP Inspector
 
