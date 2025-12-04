@@ -20,7 +20,7 @@
     "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "latest",
+    "@modelcontextprotocol/sdk": "1.24.0",
     "axios": "^1.6.0",
     "dotenv": "^16.3.1"
   },
