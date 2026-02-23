@@ -1,7 +1,7 @@
 {
   "name": "deepseek-mcp-server",
-  "version": "0.2.1",
-  "description": "Model Context Protocol server for DeepSeek's advanced language models.",
+  "version": "0.3.0",
+  "description": "Model Context Protocol server for DeepSeek API endpoints with stdio and Streamable HTTP transports.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
@@ -16,17 +16,24 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
+    "test": "vitest run --config ./vitest.config.ts",
+    "test:watch": "vitest --config ./vitest.config.ts",
+    "test:live": "npm run build && node scripts/live-smoke.mjs",
     "prepublishOnly": "npm run build",
     "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "latest",
-    "axios": "^1.6.0",
-    "dotenv": "^16.3.1"
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "dotenv": "^16.6.1",
+    "zod": "^4.3.6"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "devDependencies": {
-    "@types/node": "^20.8.0",
-    "typescript": "^5.2.2"
+    "@types/node": "^20.17.30",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   },
   "author": "DMontgomery40",
   "license": "MIT",

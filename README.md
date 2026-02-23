@@ -1,46 +1,46 @@
 # DeepSeek MCP Server
 
-A Model Context Protocol (MCP) server for the DeepSeek API, allowing seamless integration of DeepSeek's powerful language models with MCP-compatible applications like Claude Desktop.
+Official MCP server for DeepSeek.ai, with modern MCP tool/resource/prompt support and compatibility-focused transport/runtime options.
 
-## *Anonymously*  use DeepSeek API  --  Only a proxy is seen on the other side 
+Rust, Python, and additional language-native implementations are coming soon.
 
-<a href="https://glama.ai/mcp/servers/asht4rqltn"><img width="380" height="200" src="https://glama.ai/mcp/servers/asht4rqltn/badge" alt="DeepSeek Server MCP server" /></a>
+This project now targets current DeepSeek API behavior and current MCP SDK patterns while preserving non-breaking compatibility for existing clients.
 
+## Status
 
-[![npm version](https://img.shields.io/npm/v/deepseek-mcp-server)](https://www.npmjs.com/package/deepseek-mcp-server)
-[![npm downloads](https://img.shields.io/npm/dm/deepseek-mcp-server)](https://www.npmjs.com/package/deepseek-mcp-server)
-[![GitHub issues](https://img.shields.io/github/issues/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/issues)
-[![GitHub forks](https://img.shields.io/github/forks/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/network)
-[![GitHub stars](https://img.shields.io/github/stars/DMontgomery40/deepseek-mcp-server)](https://github.com/DMontgomery40/deepseek-mcp-server/stargazers)
-[![GitHub license](https://img.shields.io/github/license/DMontgomery40/deepseek-mcp-server?color=blue)](https://github.com/DMontgomery40/deepseek-mcp-server/blob/main/LICENSE)
+- DeepSeek endpoint coverage in this server:
+  - `POST /chat/completions`
+  - `POST /completions`
+  - `GET /models`
+  - `GET /user/balance`
+- MCP transport support:
+  - `stdio` (default)
+  - Streamable HTTP (`MCP_TRANSPORT=streamable-http`)
+- Runtime compatibility:
+  - Node.js `20+` (Node 20/22 are supported)
+- Compatibility strategy:
+  - Supports both `max_tokens` and `max_completion_tokens`
+  - Supports `https://api.deepseek.com` and OpenAI-compatible `https://api.deepseek.com/v1`
+  - Auto-retries `POST /completions` on `https://api.deepseek.com/beta` when DeepSeek requires Beta-only completion mode
+  - `extra_body` passthrough in tools for forward-compatible request fields
+  - Optional reasoner fallback (`deepseek-reasoner` -> `deepseek-chat`) for retriable outages
 
 ## Installation
 
-### Installing via Smithery
-
-To install DeepSeek MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@dmontgomery40/deepseek-mcp-server):
-
-```bash
-npx -y @smithery/cli install @dmontgomery40/deepseek-mcp-server --client claude
-```
-
-### Manual Installation
 ```bash
 npm install -g deepseek-mcp-server
 ```
-### Usage with Claude Desktop
 
-Add this to your `claude_desktop_config.json`:
+## Claude Desktop (stdio)
+
+Add to `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "deepseek": {
       "command": "npx",
-      "args": [
-        "-y",
-        "deepseek-mcp-server"
-      ],
+      "args": ["-y", "deepseek-mcp-server"],
       "env": {
         "DEEPSEEK_API_KEY": "your-api-key"
       }
@@ -49,80 +49,128 @@ Add this to your `claude_desktop_config.json`:
 }
 ```
 
-## Features
+## Environment Variables
 
-> Note: The server intelligently handles these natural language requests by mapping them to appropriate configuration changes. You can also query the current settings and available models:
+```bash
+# Required
+DEEPSEEK_API_KEY=your-api-key
 
-- User: "What models are available?"
-  - Response: Shows list of available models and their capabilities via the models resource.
-- User: "What configuration options do I have?"
-  - Response: Lists all available configuration options via the model-config resource.
-- User: "What is the current temperature setting?"
-  - Response: Displays the current temperature setting.
-- User: "Start a multi-turn conversation. With the following settings: model: 'deepseek-chat', make it not too creative, and 
-   allow 8000 tokens."
-  - Response: *Starts a multi-turn conversation with the specified settings.*
+# DeepSeek API runtime
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_REQUEST_TIMEOUT_MS=120000
+DEEPSEEK_DEFAULT_MODEL=deepseek-chat
+DEEPSEEK_ENABLE_REASONER_FALLBACK=true
+DEEPSEEK_FALLBACK_MODEL=deepseek-chat
 
-### Automatic Model Fallback if R1 is down
+# MCP transport
+MCP_TRANSPORT=stdio
 
-- If the primary model (R1) is down (called `deepseek-reasoner` in the server), the server will automatically attempt to try with v3 (called `deepseek-chat` in the server) 
-> Note: You can switch back and forth anytime as well, by just giving your prompt and saying "use `deepseek-reasoner`" or "use `deepseek-chat`"
-- V3 is recommended for general purpose use, while R1 is recommended for more technical and complex queries, primarily due to speed and token usage
+# Streamable HTTP mode only
+MCP_HTTP_HOST=127.0.0.1
+MCP_HTTP_PORT=3001
+MCP_HTTP_PATH=/mcp
+MCP_HTTP_STATEFUL_SESSION=false
 
-###  Resource discovery for available models and configurations:
-   * Custom model selection
-   * Temperature control (0.0 - 2.0)
-   * Max tokens limit
-   * Top P sampling (0.0 - 1.0)
-   * Presence penalty (-2.0 - 2.0)
-   * Frequency penalty (-2.0 - 2.0)
+# Conversation persistence
+CONVERSATION_MAX_MESSAGES=200
+```
 
-## Enhanced Conversation Features
+Notes:
 
-**Multi-turn conversation support:**
-* Maintains complete message history and context across exchanges
-* Preserves configuration settings throughout the conversation
-* Handles complex dialogue flows and follow-up chains automatically
+- `DEEPSEEK_BASE_URL` can be either `https://api.deepseek.com` or `https://api.deepseek.com/v1`.
+- For `MCP_TRANSPORT=streamable-http`, clients should connect to `http://<host>:<port><path>`.
 
-This feature is particularly valuable for two key use cases:
+## Exposed Tools
 
-1. **Training & Fine-tuning:**
-   Since DeepSeek is open source, many users are training their own versions. The multi-turn support provides properly formatted conversation data that's essential for training high-quality dialogue models.
+- `chat_completion`
+  - Calls DeepSeek `POST /chat/completions`
+  - Supports streaming and non-streaming
+  - Supports reasoning content, tool calls, JSON mode, thinking config, and conversation persistence (`conversation_id`)
+  - Accepts `extra_body` for forward-compatible request fields
+- `completion`
+  - Calls DeepSeek `POST /completions`
+  - Supports streaming and non-streaming
+  - Accepts `extra_body` for forward-compatible request fields
+- `list_models`
+  - Calls DeepSeek `GET /models`
+- `get_user_balance`
+  - Calls DeepSeek `GET /user/balance`
+- `list_conversations`
+  - Lists persisted `conversation_id` values
+- `reset_conversation`
+  - Clears persisted history for a `conversation_id`
 
-2. **Complex Interactions:**
-   For production use, this helps manage longer conversations where context is crucial:
-   * Multi-step reasoning problems
-   * Interactive troubleshooting sessions
-   * Detailed technical discussions
-   * Any scenario where context from earlier messages impacts later responses
+## Exposed Resources
 
-The implementation handles all context management and message formatting behind the scenes, letting you focus on the actual interaction rather than the technical details of maintaining conversation state.
+- `deepseek://api/endpoints`
+  - Endpoint/tool mapping
+- `deepseek://api/runtime`
+  - Runtime metadata
+- `deepseek://api/models/live`
+  - Live data from `GET /models`
+- `deepseek://conversations/{conversationId}`
+  - Stored chat history for a conversation
 
+## Exposed Prompt
 
+- `deepseek_chat_starter`
+  - Helper prompt template for generating consistent chat kickoff messages
 
+## Development
 
-## Testing with MCP Inspector
+Install dependencies:
 
-You can test the server locally using the MCP Inspector tool:
+```bash
+npm install
+```
 
-1. Build the server:
-   ```bash
-   npm run build
-   ```
+Build:
 
-2. Run the server with MCP Inspector:
-   ```bash
-   # Make sure to specify the full path to the built server
-   npx @modelcontextprotocol/inspector node ./build/index.js
-   ```
+```bash
+npm run build
+```
 
-The inspector will open in your browser and connect to the server via stdio transport. You can:
-- View available tools
-- Test chat completions with different parameters
-- Debug server responses
-- Monitor server performance
+Run tests:
 
-Note: The server uses DeepSeek's R1 model (deepseek-reasoner) by default, which provides state-of-the-art performance for reasoning and general tasks.
+```bash
+npm test
+```
+
+Run live DeepSeek smoke tests (requires valid `DEEPSEEK_API_KEY`):
+
+```bash
+npm run test:live
+```
+
+## Transport Modes
+
+### stdio (default)
+
+```bash
+DEEPSEEK_API_KEY=... npm start
+```
+
+### Streamable HTTP
+
+```bash
+DEEPSEEK_API_KEY=... \
+MCP_TRANSPORT=streamable-http \
+MCP_HTTP_HOST=127.0.0.1 \
+MCP_HTTP_PORT=3001 \
+MCP_HTTP_PATH=/mcp \
+npm start
+```
+
+## Forward-Compatibility Design
+
+- Uses modern MCP registration APIs (`registerTool`, `registerResource`, `registerPrompt`) instead of deprecated forms.
+- Keeps request payload assembly explicit and permissive where DeepSeek frequently evolves fields.
+- Adds `extra_body` passthrough in endpoint tools to support newly released DeepSeek parameters without requiring immediate server redeploy.
+- Maintains stream and non-stream handling for both completion endpoints.
+
+## Language Support Roadmap
+
+The current production implementation is TypeScript/Node-first. We plan to support additional language runtimes in phased rollout (SDK parity, conformance tests, transport matrix, and release automation).
 
 ## License
 

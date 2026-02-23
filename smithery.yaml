@@ -11,7 +11,28 @@ startCommand:
       deepseekApiKey:
         type: string
         description: The API key for the DeepSeek server.
+      deepseekBaseUrl:
+        type: string
+        description: Optional DeepSeek base URL (e.g. https://api.deepseek.com or https://api.deepseek.com/v1).
+        default: https://api.deepseek.com
+      defaultModel:
+        type: string
+        description: Default model used by MCP tools.
+        default: deepseek-chat
+      enableReasonerFallback:
+        type: boolean
+        description: Automatically fall back from deepseek-reasoner to deepseek-chat on retriable failures.
+        default: true
   commandFunction:
     # A function that produces the CLI command to start the MCP on stdio.
     |-
-    (config) => ({ command: 'node', args: ['build/index.js'], env: { DEEPSEEK_API_KEY: config.deepseekApiKey } })
+    (config) => ({
+      command: 'node',
+      args: ['build/index.js'],
+      env: {
+        DEEPSEEK_API_KEY: config.deepseekApiKey,
+        DEEPSEEK_BASE_URL: config.deepseekBaseUrl ?? 'https://api.deepseek.com',
+        DEEPSEEK_DEFAULT_MODEL: config.defaultModel ?? 'deepseek-chat',
+        DEEPSEEK_ENABLE_REASONER_FALLBACK: String(config.enableReasonerFallback ?? true),
+      }
+    })
