@@ -6,6 +6,11 @@ Rust, Python, and additional language-native implementations are coming soon.
 
 This project now targets current DeepSeek API behavior and current MCP SDK patterns while preserving non-breaking compatibility for existing clients.
 
+## Language Branches
+
+- TypeScript (production): [`main`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/main)
+- Rust (active track): [`rust`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust)
+
 ## Status
 
 - DeepSeek endpoint coverage in this server:
