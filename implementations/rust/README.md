@@ -2,6 +2,12 @@
 
 This branch tracks the Rust-native implementation of the **official MCP server for DeepSeek.ai**.
 
+## Branch Navigation
+
+- TypeScript production branch: [`main`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/main)
+- Rust branch (this branch): [`rust`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust)
+- Python branch: [`python`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/python)
+
 ## What this Rust build includes
 
 - MCP server built with `rmcp` (Context7-aligned server/tool macros + stdio transport).
