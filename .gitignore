@@ -6,3 +6,6 @@ build/
 AGENTS.md
 CLAUDE.md
 specs/private/
+.tools/
+.mcpregistry_github_token
+.mcpregistry_registry_token

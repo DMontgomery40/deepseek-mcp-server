@@ -17,6 +17,8 @@ Language-specific implementation docs:
 
 ## Status
 
+- Official MCP Registry entry:
+  - `io.github.DMontgomery40/deepseek` (active)
 - DeepSeek endpoint coverage in this server:
   - `POST /chat/completions`
   - `POST /completions`
