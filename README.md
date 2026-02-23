@@ -2,7 +2,7 @@
 
 Official MCP server for DeepSeek.ai, with modern MCP tool/resource/prompt support and compatibility-focused transport/runtime options.
 
-Rust, Python, and additional language-native implementations are coming soon.
+Rust and Python language tracks are now available, with additional language-native implementations coming soon.
 
 This project now targets current DeepSeek API behavior and current MCP SDK patterns while preserving non-breaking compatibility for existing clients.
 
@@ -10,6 +10,7 @@ This project now targets current DeepSeek API behavior and current MCP SDK patte
 
 - TypeScript (production): [`main`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/main)
 - Rust (active track): [`rust`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust)
+- Python (active track): [`python`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/python)
 
 ## Status
 
