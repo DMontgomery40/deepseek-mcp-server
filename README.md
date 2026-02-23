@@ -41,14 +41,6 @@ cd implementations/rust
 cargo run
 ```
 
-## Context7 Compatibility Baseline
-
-Validated against Context7 sources on February 23, 2026:
-
-- MCP Rust SDK (`rmcp`) macro-based tool server pattern and stdio transport guidance
-- MCP Python SDK transport guidance (for cross-branch parity)
-- DeepSeek API endpoint and base URL/beta semantics
-
 ## License
 
 MIT

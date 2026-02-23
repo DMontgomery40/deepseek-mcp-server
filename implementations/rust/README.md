@@ -10,7 +10,7 @@ This branch tracks the Rust-native implementation of the **official MCP server f
 
 ## What this Rust build includes
 
-- MCP server built with `rmcp` (Context7-aligned server/tool macros + stdio transport).
+- MCP server built with `rmcp` (macro-based tool server + stdio transport).
 - Tool parity target with current TS server core endpoints:
   - `list_models` -> `GET /models`
   - `get_user_balance` -> `GET /user/balance`
