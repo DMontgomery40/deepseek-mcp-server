@@ -1,16 +1,19 @@
-# DeepSeek MCP Server
+# DeepSeek MCP Server (TypeScript / Node Main)
 
-Official MCP server for DeepSeek.ai, with modern MCP tool/resource/prompt support and compatibility-focused transport/runtime options.
+This `main` branch is the production TypeScript/Node implementation of the official DeepSeek MCP server.
 
-Rust and Python language tracks are now available, with additional language-native implementations coming soon.
-
-This project now targets current DeepSeek API behavior and current MCP SDK patterns while preserving non-breaking compatibility for existing clients.
+It tracks current DeepSeek API behavior and current MCP SDK patterns while preserving non-breaking compatibility for existing clients.
 
 ## Language Branches
 
 - TypeScript (production): [`main`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/main)
 - Rust (active track): [`rust`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust)
 - Python (active track): [`python`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/python)
+
+Language-specific implementation docs:
+
+- Rust implementation details: [`implementations/rust/README.md`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust/implementations/rust/README.md)
+- Python implementation details: [`implementations/python/README.md`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/python/implementations/python/README.md)
 
 ## Status
 
