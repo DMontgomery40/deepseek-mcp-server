@@ -2,6 +2,12 @@
 
 This branch tracks the Python-native implementation of the **official MCP server for DeepSeek.ai**, aligned with current MCP Python SDK patterns from Context7.
 
+## Branch Navigation
+
+- TypeScript production branch: [`main`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/main)
+- Rust branch: [`rust`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust)
+- Python branch (this branch): [`python`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/python)
+
 ## Scope
 
 - MCP server built with `mcp` FastMCP.
