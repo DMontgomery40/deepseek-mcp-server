@@ -6,3 +6,4 @@ build/
 AGENTS.md
 CLAUDE.md
 specs/private/
+implementations/rust/target/

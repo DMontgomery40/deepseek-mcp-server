@@ -1,18 +1,41 @@
-# Rust Branch Bootstrap
+# DeepSeek MCP Server (Rust Branch)
 
-This branch is the Rust track for language-native support of the official DeepSeek MCP server.
+This branch tracks the Rust-native implementation of the **official MCP server for DeepSeek.ai**.
 
-## Current Scope
+## What this Rust build includes
 
-- Live DeepSeek API smoke test (`GET /models`) implemented in Rust.
-- Uses `DEEPSEEK_API_KEY` and optional `DEEPSEEK_BASE_URL`.
+- MCP server built with `rmcp` (Context7-aligned server/tool macros + stdio transport).
+- Tool parity target with current TS server core endpoints:
+  - `list_models` -> `GET /models`
+  - `get_user_balance` -> `GET /user/balance`
+  - `chat_completion` -> `POST /chat/completions`
+  - `completion` -> `POST /completions`
+- Compatibility behaviors:
+  - Reasoner fallback (`deepseek-reasoner` -> fallback model) on retriable failures.
+  - `/completions` retry on beta base URL when DeepSeek indicates beta-only usage.
 
 ## Run
 
 ```bash
 cd implementations/rust
 cargo test
+cargo run -- --smoke
+```
+
+`--smoke` performs a live `/models` call and exits.
+
+## Run as MCP server (stdio)
+
+```bash
+cd implementations/rust
 cargo run
 ```
 
-With a valid DeepSeek key, `cargo run` lists available models.
+## Environment
+
+- `DEEPSEEK_API_KEY` (required)
+- `DEEPSEEK_BASE_URL` (default: `https://api.deepseek.com`)
+- `DEEPSEEK_DEFAULT_MODEL` (default: `deepseek-chat`)
+- `DEEPSEEK_ENABLE_REASONER_FALLBACK` (default: `true`)
+- `DEEPSEEK_FALLBACK_MODEL` (default: `deepseek-chat`)
+- `DEEPSEEK_REQUEST_TIMEOUT_MS` (default: `120000`)
