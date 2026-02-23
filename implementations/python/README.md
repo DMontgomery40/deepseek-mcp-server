@@ -1,6 +1,6 @@
 # DeepSeek MCP Server (Python Branch)
 
-This branch tracks the Python-native implementation of the **official MCP server for DeepSeek.ai**, aligned with current MCP Python SDK patterns from Context7.
+This branch tracks the Python-native implementation of the **official MCP server for DeepSeek.ai**.
 
 ## Branch Navigation
 

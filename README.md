@@ -45,14 +45,6 @@ source .venv/bin/activate
 python deepseek_mcp_server.py
 ```
 
-## Context7 Compatibility Baseline
-
-Validated against Context7 sources on February 23, 2026:
-
-- MCP Python SDK FastMCP server/transport guidance (`stdio`, `streamable-http`)
-- MCP Rust SDK pattern alignment for cross-branch parity
-- DeepSeek API endpoint and base URL/beta semantics
-
 ## License
 
 MIT
