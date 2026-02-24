@@ -1,256 +1,99 @@
-# DeepSeek MCP Server (TypeScript / Node Main)
+# DeepSeek MCP Server
 
-This `main` branch is the production TypeScript/Node implementation of the official DeepSeek MCP server.
+Official DeepSeek MCP server for chat/completions/models/balance.
 
-It tracks current DeepSeek API behavior and current MCP SDK patterns while preserving non-breaking compatibility for existing clients.
+- Hosted remote endpoint: `https://deepseek-mcp.ragweld.com/mcp`
+- Auth: `Authorization: Bearer <token>`
+- Local package and Docker are also supported.
 
-## Language Branches
+## Quick Install (Copy/Paste)
 
-- TypeScript (production): [`main`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/main)
-- Rust (active track): [`rust`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust)
-- Python (active track): [`python`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/python)
-
-Language-specific implementation docs:
-
-- Rust implementation details: [`implementations/rust/README.md`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/rust/implementations/rust/README.md)
-- Python implementation details: [`implementations/python/README.md`](https://github.com/DMontgomery40/deepseek-mcp-server/tree/python/implementations/python/README.md)
-
-## Status
-
-- Official MCP Registry entry:
-  - `io.github.DMontgomery40/deepseek` (active)
-- DeepSeek endpoint coverage in this server:
-  - `POST /chat/completions`
-  - `POST /completions`
-  - `GET /models`
-  - `GET /user/balance`
-- MCP transport support:
-  - `stdio` (default)
-  - Streamable HTTP (`MCP_TRANSPORT=streamable-http`)
-- Hosted remote endpoint:
-  - `https://deepseek-mcp.ragweld.com/mcp` (Streamable HTTP, bearer auth required)
-- Runtime compatibility:
-  - Node.js `20+` (Node 20/22 are supported)
-- Compatibility strategy:
-  - Supports both `max_tokens` and `max_completion_tokens`
-  - Supports `https://api.deepseek.com` and OpenAI-compatible `https://api.deepseek.com/v1`
-  - Auto-retries `POST /completions` on `https://api.deepseek.com/beta` when DeepSeek requires Beta-only completion mode
-  - `extra_body` passthrough in tools for forward-compatible request fields
-  - Optional reasoner fallback (`deepseek-reasoner` -> `deepseek-chat`) for retriable outages
-  - Tool definitions are optimized for code-execution clients (for example codemode-style MCP usage): explicit input schemas (including no-arg tools), detailed descriptions, machine-readable errors, and opt-in raw payloads to reduce token bloat
-
-## Installation
+### 1) Set your hosted token once
 
 ```bash
-npm install -g deepseek-mcp-server
+export DEEPSEEK_MCP_AUTH_TOKEN="REPLACE_WITH_TOKEN"
 ```
 
-## Installation Modes
-
-### Local package (stdio)
+### 2) Codex CLI (remote MCP)
 
 ```bash
-npx -y deepseek-mcp-server
+codex mcp add deepseek --url https://deepseek-mcp.ragweld.com/mcp --bearer-token-env-var DEEPSEEK_MCP_AUTH_TOKEN
 ```
 
-### Local container (OCI/Docker)
+### 3) Claude Code (remote MCP)
 
 ```bash
-docker run --rm -i \
-  -e DEEPSEEK_API_KEY=your-api-key \
-  docker.io/dmontgomery40/deepseek-mcp-server:0.4.0
+claude mcp add --transport http deepseek https://deepseek-mcp.ragweld.com/mcp --header "Authorization: Bearer $DEEPSEEK_MCP_AUTH_TOKEN"
 ```
 
-### Hosted remote (Streamable HTTP)
-
-- URL: `https://deepseek-mcp.ragweld.com/mcp`
-- Header: `Authorization: Bearer <token>`
-- Registry metadata publishes this as a `remotes` entry plus local `packages` entries.
-- Auth boundary: bearer-token enforcement for the hosted endpoint is implemented by the ragweld.com deployment gateway (Netlify function adapter), not by this package runtime.
-- Local `MCP_TRANSPORT=streamable-http` in this repo does not apply bearer auth by default.
-
-## Claude Desktop (stdio)
-
-Add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "deepseek": {
-      "command": "npx",
-      "args": ["-y", "deepseek-mcp-server"],
-      "env": {
-        "DEEPSEEK_API_KEY": "your-api-key"
-      }
-    }
-  }
-}
-```
-
-## Environment Variables
+### 4) Cursor (remote MCP)
 
 ```bash
-# Required
-DEEPSEEK_API_KEY=your-api-key
-
-# DeepSeek API runtime
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-DEEPSEEK_REQUEST_TIMEOUT_MS=120000
-DEEPSEEK_DEFAULT_MODEL=deepseek-chat
-DEEPSEEK_ENABLE_REASONER_FALLBACK=true
-DEEPSEEK_FALLBACK_MODEL=deepseek-chat
-
-# MCP transport
-MCP_TRANSPORT=stdio
-
-# Streamable HTTP mode only
-MCP_HTTP_HOST=127.0.0.1
-MCP_HTTP_PORT=3001
-MCP_HTTP_PATH=/mcp
-MCP_HTTP_STATEFUL_SESSION=false
-
-# Conversation persistence
-CONVERSATION_MAX_MESSAGES=200
-
-# Hosted remote smoke test only (client-side)
-DEEPSEEK_REMOTE_MCP_URL=https://deepseek-mcp.ragweld.com/mcp
-DEEPSEEK_MCP_AUTH_TOKEN=your-hosted-token
+node -e 'const fs=require("fs"),p=process.env.HOME+"/.cursor/mcp.json";let j={mcpServers:{}};try{j=JSON.parse(fs.readFileSync(p,"utf8"))}catch{};j.mcpServers={...(j.mcpServers||{}),deepseek:{url:"https://deepseek-mcp.ragweld.com/mcp",headers:{Authorization:"Bearer ${env:DEEPSEEK_MCP_AUTH_TOKEN}"}}};fs.mkdirSync(process.env.HOME+"/.cursor",{recursive:true});fs.writeFileSync(p,JSON.stringify(j,null,2));'
 ```
 
-Notes:
-
-- `DEEPSEEK_BASE_URL` can be either `https://api.deepseek.com` or `https://api.deepseek.com/v1`.
-- For `MCP_TRANSPORT=streamable-http`, clients should connect to `http://<host>:<port><path>`.
-
-## Exposed Tools
-
-- `chat_completion`
-  - Calls DeepSeek `POST /chat/completions`
-  - Supports streaming and non-streaming
-  - Supports reasoning content, tool calls, JSON mode, thinking config, and conversation persistence (`conversation_id`)
-  - Accepts `extra_body` for forward-compatible request fields
-- `completion`
-  - Calls DeepSeek `POST /completions`
-  - Supports streaming and non-streaming
-  - Accepts `extra_body` for forward-compatible request fields
-- `list_models`
-  - Calls DeepSeek `GET /models`
-- `get_user_balance`
-  - Calls DeepSeek `GET /user/balance`
-- `list_conversations`
-  - Lists persisted `conversation_id` values
-- `reset_conversation`
-  - Clears persisted history for a `conversation_id`
-
-## Exposed Resources
-
-- `deepseek://api/endpoints`
-  - Endpoint/tool mapping
-- `deepseek://api/runtime`
-  - Runtime metadata
-- `deepseek://api/models/live`
-  - Live data from `GET /models`
-- `deepseek://conversations/{conversationId}`
-  - Stored chat history for a conversation
-
-## Exposed Prompt
-
-- `deepseek_chat_starter`
-  - Helper prompt template for generating consistent chat kickoff messages
-
-## Development
-
-Install dependencies:
+### 5) Local install (stdio, if you prefer self-hosted)
 
 ```bash
-npm install
+DEEPSEEK_API_KEY="REPLACE_WITH_DEEPSEEK_KEY" npx -y deepseek-mcp-server
 ```
 
-Build:
+## Non-Technical Users
 
-```bash
-npm run build
-```
+If you mostly use chat apps and don’t want terminal setup:
 
-Run tests:
+1. Use Cursor’s MCP settings UI and add:
+   - URL: `https://deepseek-mcp.ragweld.com/mcp`
+   - Header: `Authorization: Bearer <token>`
+2. If your app does not support custom remote MCP servers with bearer headers yet, use Codex/Claude Code/Cursor as your MCP-enabled client and keep your usual model provider.
 
-```bash
-npm test
-```
+### OpenRouter users (API + chat UI)
 
-Run live DeepSeek smoke tests (requires valid `DEEPSEEK_API_KEY`):
+OpenRouter now documents MCP usage, but its MCP flow is SDK/client-centric (not “paste URL in chat and done” for most users). Easiest path is: keep OpenRouter for models, and connect this MCP server through an MCP-capable client (Codex/Claude Code/Cursor).
 
-```bash
-npm run test:live
-```
+## Remote vs Local (Which Should I Use?)
 
-Run hosted remote MCP smoke test (requires valid hosted access token):
+### Remote server
 
-```bash
-DEEPSEEK_MCP_AUTH_TOKEN=... \
-DEEPSEEK_REMOTE_MCP_URL=https://deepseek-mcp.ragweld.com/mcp \
-npm run test:remote
-```
+Use remote if you want the fastest setup and centralized updates.
 
-### Hosted Remote Verification (Absolute Commands)
+- Pros: no local server process, easy multi-device use, one shared endpoint.
+- Cons: depends on network + hosted token.
 
-```bash
-# 1) Run from the server repo (absolute path)
-cd /Users/davidmontgomery/deepseek-mcp-server
+### Local server
 
-# 2) Expected unauthenticated behavior
-curl -i https://deepseek-mcp.ragweld.com/mcp
-# Expected: HTTP/1.1 405 for GET /mcp
+Use local if you want full runtime control.
 
-curl -sS https://deepseek-mcp.ragweld.com/mcp \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"readme-check","version":"1.0.0"}}}'
-# Expected: JSON error with HTTP 401 when Authorization header is missing
+- Pros: fully self-managed, easy private-network workflows.
+- Cons: you manage updates/secrets/process lifecycle.
 
-# 3) Full authenticated remote smoke test
-DEEPSEEK_MCP_AUTH_TOKEN='REPLACE_WITH_TOKEN' \
-DEEPSEEK_REMOTE_MCP_URL='https://deepseek-mcp.ragweld.com/mcp' \
-npm run test:remote
+## Code Mode / Code Execution (Short Version)
 
-# 4) Direct authenticated tools/call example
-TOKEN='REPLACE_WITH_TOKEN'
-curl -sS https://deepseek-mcp.ragweld.com/mcp \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H 'Accept: application/json, text/event-stream' \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"chat_completion","arguments":{"messages":[{"role":"user","content":"Reply with exactly: README_QUERY_OK"}],"temperature":0,"max_tokens":32}}}' \
-  | jq
-```
+Classic tool calling can waste context because every tool schema and intermediate result gets shoved into the model prompt. Code-mode/code-execution patterns let the model write compact code plans and keep heavy intermediate data out of context, which usually improves cost, latency, and reliability.
 
-## Transport Modes
+## Learn More (Curated)
 
-### stdio (default)
+- Anthropic (Feb 2026): [Introducing Sonnet 4.6](https://www.anthropic.com/news/claude-sonnet-4-6)  
+  Why it matters: this is the clearest current Anthropic update that code execution + programmatic tool calling are broadly available.
 
-```bash
-DEEPSEEK_API_KEY=... npm start
-```
+- Cloudflare (Matt Carey, Feb 2026): [Code Mode: give agents an entire API in 1,000 tokens](https://blog.cloudflare.com/code-mode-mcp/)  
+  Why it matters: very practical code-mode architecture and token-efficiency tradeoffs.
 
-### Streamable HTTP
+- Anthropic (Jan 2026): [Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)  
+  Why it matters: concise guidance for testing tool-using agents (including MCP-style agent loops).
 
-```bash
-DEEPSEEK_API_KEY=... \
-MCP_TRANSPORT=streamable-http \
-MCP_HTTP_HOST=127.0.0.1 \
-MCP_HTTP_PORT=3001 \
-MCP_HTTP_PATH=/mcp \
-npm start
-```
+- Anthropic Help (updated 2026): [Getting started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp)  
+  Why it matters: clean product-level explanation of what remote MCP is and when to use it.
 
-## Forward-Compatibility Design
+- Cursor docs: [Model Context Protocol (MCP)](https://docs.cursor.com/advanced/model-context-protocol)  
+  Why it matters: current `mcp.json` setup model for Cursor.
 
-- Uses modern MCP registration APIs (`registerTool`, `registerResource`, `registerPrompt`) instead of deprecated forms.
-- Keeps request payload assembly explicit and permissive where DeepSeek frequently evolves fields.
-- Adds `extra_body` passthrough in endpoint tools to support newly released DeepSeek parameters without requiring immediate server redeploy.
-- Maintains stream and non-stream handling for both completion endpoints.
+- OpenRouter docs: [Using MCP Servers with OpenRouter](https://openrouter.ai/docs/guides/guides/mcp-servers)  
+  Why it matters: current integration path for OpenRouter-centric workflows.
 
-## Language Support Roadmap
+## Registry Identity
 
-The current production implementation is TypeScript/Node-first. We plan to support additional language runtimes in phased rollout (SDK parity, conformance tests, transport matrix, and release automation).
+- MCP Registry name: `io.github.DMontgomery40/deepseek`
 
 ## License
 
