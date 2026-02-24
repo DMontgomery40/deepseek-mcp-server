@@ -85,20 +85,43 @@ Use local if you want full runtime control.
 - Pros: fully self-managed, easy private-network workflows.
 - Cons: you manage updates/secrets/process lifecycle.
 
-## Code Mode / Code Execution (Short Version)
+## Code Execution with MCP (What This Actually Means)
 
-Classic tool calling can waste context because every tool schema and intermediate result gets shoved into the model prompt. Code-mode/code-execution patterns let the model write compact code plans and keep heavy intermediate data out of context, which usually improves cost, latency, and reliability.
+In basic tool-calling mode, the model usually needs:
+
+- many tool definitions loaded into context before it starts;
+- one model round-trip per tool call;
+- intermediate results repeatedly fed back into context.
+
+That works for small toolsets, but it scales poorly. You burn tokens on tool metadata, add latency from repeated inference hops, and raise failure risk when tools are similarly named or require multi-step orchestration.
+
+Code execution changes the control flow. Instead of repeatedly asking the model to call one tool at a time, the model can write a small program that calls tools directly in an execution runtime. That runtime handles loops, branching, filtering, joins, retries, and result shaping. The model then gets a compact summary instead of every raw intermediate payload.
+
+Why this matters in practice:
+
+- lower context pressure: you avoid dumping full tool catalogs and every raw result into prompt history;
+- better orchestration: code handles deterministic logic that is awkward in pure natural-language loops;
+- lower latency at scale: fewer model turns for multi-step workflows;
+- usually better reliability: less chance of drifting tool choice across long chains.
+
+Limits to keep in mind:
+
+- code execution does not remove the need for good tool schemas and permissions;
+- this is still an agent system, so guardrails/quotas/auditing matter;
+- for tiny single-tool tasks, plain tool calling can still be simpler.
+
+For this DeepSeek MCP server, the practical takeaway is: keep tool interfaces explicit and stable, then let MCP clients choose direct tool-calling or code-execution orchestration based on workload size and complexity.
 
 ## Learn More (Curated)
 
-- Anthropic (Feb 2026): [Introducing Sonnet 4.6](https://www.anthropic.com/news/claude-sonnet-4-6)  
-  Why it matters: this is the clearest current Anthropic update that code execution + programmatic tool calling are broadly available.
+- Anthropic Engineering: [Code execution with MCP: Building more efficient agents](https://www.anthropic.com/engineering/code-execution-with-mcp)  
+  Why it matters: the clearest explanation of why direct tool-calling becomes expensive at scale, and how code execution reduces token overhead and orchestration friction.
+
+- Anthropic Engineering: [Introducing advanced tool use on the Claude Developer Platform](https://www.anthropic.com/engineering/advanced-tool-use)  
+  Why it matters: practical architecture for large tool ecosystems: Tool Search Tool, Programmatic Tool Calling, and Tool Use Examples.
 
 - Cloudflare (Matt Carey, Feb 2026): [Code Mode: give agents an entire API in 1,000 tokens](https://blog.cloudflare.com/code-mode-mcp/)  
-  Why it matters: very practical code-mode architecture and token-efficiency tradeoffs.
-
-- Anthropic (Jan 2026): [Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)  
-  Why it matters: concise guidance for testing tool-using agents (including MCP-style agent loops).
+  Why it matters: concrete implementation patterns for model-controlled tool discovery and token-efficient execution loops.
 
 - Anthropic Help (updated 2026): [Getting started with custom connectors using remote MCP](https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp)  
   Why it matters: clean product-level explanation of what remote MCP is and when to use it.
