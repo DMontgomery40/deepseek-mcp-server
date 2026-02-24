@@ -56,6 +56,13 @@ node -e 'const fs=require("fs"),p=process.env.HOME+"/.cursor/mcp.json";let j={mc
 DEEPSEEK_API_KEY="REPLACE_WITH_DEEPSEEK_KEY" npx -y deepseek-mcp-server
 ```
 
+### 6) Local install with Docker (stdio, self-hosted)
+
+```bash
+docker pull docker.io/dmontgomery40/deepseek-mcp-server:0.4.0 && \
+docker run --rm -i -e DEEPSEEK_API_KEY="REPLACE_WITH_DEEPSEEK_KEY" docker.io/dmontgomery40/deepseek-mcp-server:0.4.0
+```
+
 ## Non-Technical Users
 
 If you mostly use chat apps and don’t want terminal setup:
