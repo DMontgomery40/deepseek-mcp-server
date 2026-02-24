@@ -109,6 +109,7 @@ describe("createDeepSeekMcpServer", () => {
     try {
       const tools = await harness.client.listTools();
       const names = tools.tools.map((tool) => tool.name).sort();
+      const toolsByName = new Map(tools.tools.map((tool) => [tool.name, tool]));
 
       expect(names).toEqual(
         expect.arrayContaining([
@@ -120,6 +121,10 @@ describe("createDeepSeekMcpServer", () => {
           "list_conversations",
         ]),
       );
+
+      expect(toolsByName.get("list_models")?.inputSchema).toMatchObject({ type: "object" });
+      expect(toolsByName.get("get_user_balance")?.inputSchema).toMatchObject({ type: "object" });
+      expect(toolsByName.get("list_conversations")?.inputSchema).toMatchObject({ type: "object" });
     } finally {
       await harness.serverClose();
     }
@@ -224,6 +229,35 @@ describe("createDeepSeekMcpServer", () => {
       const balance = await harness.client.callTool({ name: "get_user_balance", arguments: {} });
       expect(balance.isError).toBeFalsy();
       expect(harness.api.getUserBalance).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("keeps raw provider payload opt-in to reduce token bloat", async () => {
+    const harness = await createHarness();
+
+    try {
+      const withoutRaw = await harness.client.callTool({
+        name: "chat_completion",
+        arguments: {
+          message: "hello",
+        },
+      });
+
+      expect(withoutRaw.isError).toBeFalsy();
+      expect((withoutRaw.structuredContent as Record<string, unknown>)?.raw_response).toBeUndefined();
+
+      const withRaw = await harness.client.callTool({
+        name: "chat_completion",
+        arguments: {
+          message: "hello",
+          include_raw_response: true,
+        },
+      });
+
+      expect(withRaw.isError).toBeFalsy();
+      expect((withRaw.structuredContent as Record<string, unknown>)?.raw_response).toBeDefined();
     } finally {
       await harness.serverClose();
     }

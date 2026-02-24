@@ -1,6 +1,6 @@
 {
   "name": "deepseek-mcp-server",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "mcpName": "io.github.DMontgomery40/deepseek",
   "description": "Model Context Protocol server for DeepSeek API endpoints with stdio and Streamable HTTP transports.",
   "type": "module",
@@ -20,6 +20,7 @@
     "test": "vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
     "test:live": "npm run build && node scripts/live-smoke.mjs",
+    "test:remote": "npm run build && node scripts/remote-smoke.mjs",
     "prepublishOnly": "npm run build",
     "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },

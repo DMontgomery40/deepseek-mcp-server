@@ -14,6 +14,57 @@ export const chatMessageSchema = z
 
 const stopSchema = z.union([z.string().min(1), z.array(z.string().min(1)).min(1).max(16)]);
 
+const streamOptionsSchema = z
+  .object({
+    include_usage: z.boolean().optional(),
+  })
+  .passthrough();
+
+const toolFunctionSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    parameters: z.record(z.string(), z.unknown()).optional(),
+    strict: z.boolean().optional(),
+  })
+  .passthrough();
+
+const toolDefinitionSchema = z
+  .object({
+    type: z.literal("function"),
+    function: toolFunctionSchema,
+  })
+  .passthrough();
+
+const toolChoiceSchema = z.union([
+  z.enum(["none", "auto", "required"]),
+  z
+    .object({
+      type: z.literal("function"),
+      function: z
+        .object({
+          name: z.string().min(1),
+        })
+        .passthrough(),
+    })
+    .passthrough(),
+]);
+
+const thinkingSchema = z
+  .object({
+    type: z.enum(["enabled", "disabled"]).optional(),
+  })
+  .passthrough();
+
+const audioSchema = z
+  .object({
+    format: z.string().min(1).optional(),
+    voice: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+export const emptyToolInputSchema = z.object({});
+
 export const chatCompletionToolInputSchema = z
   .object({
     message: z.string().min(1).optional(),
@@ -33,16 +84,17 @@ export const chatCompletionToolInputSchema = z
       .optional(),
     stop: stopSchema.optional(),
     stream: z.boolean().default(false),
-    stream_options: z.record(z.string(), z.unknown()).optional(),
+    stream_options: streamOptionsSchema.optional(),
     temperature: z.number().min(0).max(2).optional(),
     top_p: z.number().min(0).max(1).optional(),
-    tools: z.array(z.record(z.string(), z.unknown())).optional(),
-    tool_choice: z.union([z.enum(["none", "auto", "required"]), z.record(z.string(), z.unknown())]).optional(),
+    tools: z.array(toolDefinitionSchema).optional(),
+    tool_choice: toolChoiceSchema.optional(),
     logprobs: z.boolean().optional(),
     top_logprobs: z.number().int().min(0).max(20).optional(),
-    thinking: z.record(z.string(), z.unknown()).optional(),
+    thinking: thinkingSchema.optional(),
     modalities: z.array(z.string().min(1)).optional(),
-    audio: z.record(z.string(), z.unknown()).optional(),
+    audio: audioSchema.optional(),
+    include_raw_response: z.boolean().default(false),
     extra_body: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((value, context) => {
@@ -76,6 +128,7 @@ export const completionToolInputSchema = z.object({
   presence_penalty: z.number().min(-2).max(2).optional(),
   frequency_penalty: z.number().min(-2).max(2).optional(),
   best_of: z.number().int().positive().optional(),
+  include_raw_response: z.boolean().default(false),
   extra_body: z.record(z.string(), z.unknown()).optional(),
 });
 

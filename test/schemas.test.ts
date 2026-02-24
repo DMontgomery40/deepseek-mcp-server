@@ -29,6 +29,20 @@ describe("tool input schemas", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects malformed tool definitions", () => {
+    const result = chatCompletionToolInputSchema.safeParse({
+      message: "hello",
+      tools: [
+        {
+          type: "function",
+          function: {},
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("validates completion endpoint fields", () => {
     const parsed = completionToolInputSchema.parse({
       prompt: "abc",

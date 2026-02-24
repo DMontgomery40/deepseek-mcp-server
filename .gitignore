@@ -9,3 +9,7 @@ specs/private/
 .tools/
 .mcpregistry_github_token
 .mcpregistry_registry_token
+implementations/**/.venv/
+implementations/**/target/
+implementations/**/__pycache__/
+implementations/**/.pytest_cache/

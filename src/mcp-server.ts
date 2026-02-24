@@ -8,6 +8,7 @@ import {
   CompletionToolInput,
   chatCompletionToolInputSchema,
   completionToolInputSchema,
+  emptyToolInputSchema,
   resetConversationToolInputSchema,
 } from "./deepseek/schemas.js";
 import {
@@ -50,7 +51,8 @@ const ENDPOINT_MATRIX = [
   },
 ] as const;
 
-const SERVER_VERSION = "0.3.0";
+const SERVER_VERSION = "0.4.0";
+const RETRYABLE_DEEPSEEK_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
 
 export function createDeepSeekMcpServer(options: DeepSeekMcpServerOptions): McpServer {
   const server = new McpServer({
@@ -216,7 +218,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
     "chat_completion",
     {
       description:
-        "Call DeepSeek POST /chat/completions with support for streaming, reasoning output, tool calls, and optional conversation persistence.",
+        "Primary DeepSeek chat tool for single-turn and multi-turn generation. Provide either `message` (simple single user turn) or `messages` (full chat history); if both are provided, `messages` is used. Use `conversation_id` to persist context across calls and `clear_conversation=true` to reset stored state before sending the next turn. Set `include_raw_response=true` only for debugging, because it returns the full provider payload and increases token usage.",
       inputSchema: chatCompletionToolInputSchema,
     },
     async (input) => {
@@ -253,6 +255,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         const responseText = assistantMessage?.content ?? "";
         const reasoning = assistantMessage?.reasoning_content;
         const toolCalls = assistantMessage?.tool_calls ?? [];
+        const includeRawResponse = normalizedInput.include_raw_response;
 
         const summary = [
           result.fallback
@@ -265,20 +268,25 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
           .filter(Boolean)
           .join("\n");
 
+        const structuredContent: Record<string, unknown> = {
+          model: result.response.model,
+          conversation_id: conversationId ?? null,
+          response_text: responseText,
+          reasoning_content: reasoning ?? null,
+          tool_calls: toolCalls,
+          finish_reason: choice?.finish_reason ?? null,
+          usage: result.response.usage ?? null,
+          fallback: result.fallback ?? null,
+          stream_chunk_count: result.streamChunkCount ?? null,
+        };
+
+        if (includeRawResponse) {
+          structuredContent.raw_response = result.response;
+        }
+
         return {
           content: [{ type: "text", text: summary }],
-          structuredContent: {
-            model: result.response.model,
-            conversation_id: conversationId ?? null,
-            response_text: responseText,
-            reasoning_content: reasoning ?? null,
-            tool_calls: toolCalls,
-            finish_reason: choice?.finish_reason ?? null,
-            usage: result.response.usage ?? null,
-            fallback: result.fallback ?? null,
-            stream_chunk_count: result.streamChunkCount ?? null,
-            raw_response: result.response,
-          },
+          structuredContent,
         };
       } catch (error) {
         return makeToolErrorResult(error);
@@ -290,7 +298,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
     "completion",
     {
       description:
-        "Call DeepSeek POST /completions for text/FIM completion workloads, including streaming support.",
+        "DeepSeek text/FIM completion tool for prompt-completion workflows. Use this when you need raw completion text instead of chat message formatting. Supports the same generation controls as the provider completion endpoint and can aggregate streamed output. Set `include_raw_response=true` only when you need the full provider payload for debugging.",
       inputSchema: completionToolInputSchema,
     },
     async (input) => {
@@ -299,6 +307,19 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         const request = buildCompletionRequest(normalizedInput, options.defaultModel);
         const result = await options.client.createCompletion(request);
         const choice = result.response.choices[0];
+        const includeRawResponse = normalizedInput.include_raw_response;
+
+        const structuredContent: Record<string, unknown> = {
+          model: result.response.model,
+          text: choice?.text ?? "",
+          finish_reason: choice?.finish_reason ?? null,
+          usage: result.response.usage ?? null,
+          stream_chunk_count: result.streamChunkCount ?? null,
+        };
+
+        if (includeRawResponse) {
+          structuredContent.raw_response = result.response;
+        }
 
         return {
           content: [
@@ -307,14 +328,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
               text: choice?.text || "(no completion text returned)",
             },
           ],
-          structuredContent: {
-            model: result.response.model,
-            text: choice?.text ?? "",
-            finish_reason: choice?.finish_reason ?? null,
-            usage: result.response.usage ?? null,
-            stream_chunk_count: result.streamChunkCount ?? null,
-            raw_response: result.response,
-          },
+          structuredContent,
         };
       } catch (error) {
         return makeToolErrorResult(error);
@@ -325,7 +339,12 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
   server.registerTool(
     "list_models",
     {
-      description: "Call DeepSeek GET /models",
+      description:
+        "List available DeepSeek models for model selection and validation. This tool takes no parameters. Use it before passing an explicit model ID to generation tools.",
+      inputSchema: emptyToolInputSchema,
+      annotations: {
+        readOnlyHint: true,
+      },
     },
     async () => {
       try {
@@ -348,7 +367,12 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
   server.registerTool(
     "get_user_balance",
     {
-      description: "Call DeepSeek GET /user/balance",
+      description:
+        "Return the current DeepSeek account balance and availability status. This tool takes no parameters and is read-only. Use it for account health checks when diagnosing provider-side failures.",
+      inputSchema: emptyToolInputSchema,
+      annotations: {
+        readOnlyHint: true,
+      },
     },
     async () => {
       try {
@@ -371,7 +395,8 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
   server.registerTool(
     "reset_conversation",
     {
-      description: "Delete stored conversation history by conversation_id",
+      description:
+        "Delete stored in-memory chat history for a `conversation_id`. Use this when you want to keep the same ID but start a fresh thread. This only affects server-side memory in the current MCP process.",
       inputSchema: resetConversationToolInputSchema,
       annotations: {
         idempotentHint: true,
@@ -399,7 +424,9 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
   server.registerTool(
     "list_conversations",
     {
-      description: "List all currently stored conversation IDs",
+      description:
+        "List all conversation IDs currently stored in this MCP process memory. This tool takes no parameters and does not call the DeepSeek API. Useful for debugging conversation persistence behavior.",
+      inputSchema: emptyToolInputSchema,
       annotations: {
         readOnlyHint: true,
       },
@@ -521,24 +548,84 @@ function buildCompletionRequest(
 function makeToolErrorResult(error: unknown): {
   isError: true;
   content: [{ type: "text"; text: string }];
+  structuredContent: {
+    error_type: "deepseek_api_error" | "tool_execution_error";
+    status: number | null;
+    message: string;
+    retryable: boolean;
+    suggestion: string;
+  };
 } {
   if (error instanceof DeepSeekApiError) {
+    const retryable = isRetryableDeepSeekError(error.status);
+    const suggestion = getDeepSeekErrorSuggestion(error.status);
+
     return {
       isError: true,
       content: [
         {
           type: "text",
           text: error.status
-            ? `DeepSeek API error (${error.status}): ${error.message}`
-            : `DeepSeek API error: ${error.message}`,
+            ? `DeepSeek API error (${error.status}): ${error.message}. ${suggestion}`
+            : `DeepSeek API error: ${error.message}. ${suggestion}`,
         },
       ],
+      structuredContent: {
+        error_type: "deepseek_api_error",
+        status: error.status ?? null,
+        message: error.message,
+        retryable,
+        suggestion,
+      },
     };
   }
 
   const message = error instanceof Error ? error.message : String(error);
   return {
     isError: true,
-    content: [{ type: "text", text: `Tool execution failed: ${message}` }],
+    content: [{ type: "text", text: `Tool execution failed: ${message}. Check input schema and required fields.` }],
+    structuredContent: {
+      error_type: "tool_execution_error",
+      status: null,
+      message,
+      retryable: false,
+      suggestion: "Validate the tool arguments against the published schema and retry.",
+    },
   };
+}
+
+function isRetryableDeepSeekError(status: number | undefined): boolean {
+  if (status === undefined) {
+    return true;
+  }
+
+  return RETRYABLE_DEEPSEEK_STATUS_CODES.has(status);
+}
+
+function getDeepSeekErrorSuggestion(status: number | undefined): string {
+  if (status === undefined) {
+    return "Retry the request and verify network connectivity.";
+  }
+
+  if (status === 401 || status === 403) {
+    return "Verify DEEPSEEK_API_KEY and endpoint permissions.";
+  }
+
+  if (status === 402) {
+    return "Check account balance or billing status.";
+  }
+
+  if (status === 429) {
+    return "Rate limit reached; retry with backoff.";
+  }
+
+  if (status >= 500) {
+    return "Provider service issue; retry with backoff.";
+  }
+
+  if (status >= 400) {
+    return "Review request fields and argument types.";
+  }
+
+  return "Retry the request.";
 }
