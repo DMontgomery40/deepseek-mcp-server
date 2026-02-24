@@ -1,5 +1,23 @@
 # DeepSeek MCP Server
 
+<p align="center">
+  <img src="https://cdn.deepseek.com/logo.png" alt="DeepSeek logo" width="260" />
+</p>
+
+<p align="center">
+  As of February 24, 2026, this is the only DeepSeek MCP server repo linked in DeepSeek's official integration list and listed in the official MCP Registry.
+</p>
+
+<p align="center">
+  <a href="https://github.com/deepseek-ai/awesome-deepseek-integration"><img alt="DeepSeek Official List" src="https://img.shields.io/badge/DeepSeek%20Official%20List-Linked-0A66FF?logo=github&logoColor=white" /></a>
+  <a href="https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.DMontgomery40/deepseek"><img alt="Official MCP Registry" src="https://img.shields.io/badge/MCP%20Registry-Official%20Active-0A66FF" /></a>
+  <a href="https://www.npmjs.com/package/deepseek-mcp-server"><img alt="npm version" src="https://img.shields.io/npm/v/deepseek-mcp-server?logo=npm" /></a>
+  <a href="https://www.npmjs.com/package/deepseek-mcp-server"><img alt="npm downloads" src="https://img.shields.io/npm/dm/deepseek-mcp-server?logo=npm" /></a>
+  <a href="https://hub.docker.com/r/dmontgomery40/deepseek-mcp-server"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/dmontgomery40/deepseek-mcp-server?logo=docker" /></a>
+  <a href="https://github.com/DMontgomery40/deepseek-mcp-server"><img alt="GitHub stars" src="https://img.shields.io/github/stars/DMontgomery40/deepseek-mcp-server?logo=github" /></a>
+  <a href="https://glama.ai/mcp/servers/asht4rqltn"><img alt="Glama MCP Listing" src="https://img.shields.io/badge/Glama-MCP%20Listing-7B61FF" /></a>
+</p>
+
 Official DeepSeek MCP server for chat/completions/models/balance.
 
 - Hosted remote endpoint: `https://deepseek-mcp.ragweld.com/mcp`
