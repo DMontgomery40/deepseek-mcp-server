@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { DeepSeekApiClient, DeepSeekApiError } from "../src/deepseek/client.js";
+import { V4_ENDPOINTS } from "../src/deepseek/v4-mapping.js";
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -373,5 +374,37 @@ describe("DeepSeekApiClient", () => {
     const secondUrl = fetchMock.mock.calls[1]?.[0] as string;
     expect(firstUrl).toBe("https://api.deepseek.com/models");
     expect(secondUrl).toBe("https://api.deepseek.com/user/balance");
+  });
+
+  it("calls speculative v4 endpoints through typed client methods", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ id: "file-vision-1", status: "ok" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "file-video-1", status: "ok" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "img-1", data: [{ url: "https://cdn.example.com/i.png" }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: "vid-1", task_id: "task-1", status: "queued" }))
+      .mockResolvedValueOnce(jsonResponse({ task_id: "task-1", status: "completed", video_url: "https://cdn.example.com/v.mp4" }));
+
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+    });
+
+    await client.uploadVisionAsset({ input_url: "https://example.com/a.jpg" });
+    await client.uploadVideoAsset({ input_url: "https://example.com/a.mp4" });
+    await client.generateImage({ prompt: "hello" });
+    await client.generateVideo({ prompt: "hello" });
+    await client.getV4TaskStatus("task-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    const urls = fetchMock.mock.calls.map((call) => call[0] as string);
+    expect(urls).toEqual([
+      `https://api.deepseek.com${V4_ENDPOINTS.visionUpload}`,
+      `https://api.deepseek.com${V4_ENDPOINTS.videoUpload}`,
+      `https://api.deepseek.com${V4_ENDPOINTS.imageGeneration}`,
+      `https://api.deepseek.com${V4_ENDPOINTS.videoGeneration}`,
+      "https://api.deepseek.com/tasks/task-1",
+    ]);
   });
 });

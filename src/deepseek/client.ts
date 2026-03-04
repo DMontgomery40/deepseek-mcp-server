@@ -11,6 +11,7 @@ import {
   DeepSeekUserBalanceResponse,
   FallbackMetadata,
 } from "./types.js";
+import { V4_ENDPOINTS, V4_ENDPOINT_CANDIDATES, buildTaskStatusPath } from "./v4-mapping.js";
 
 export interface DeepSeekApiClientOptions {
   apiKey: string;
@@ -197,6 +198,47 @@ export class DeepSeekApiClient {
     });
   }
 
+  async uploadVisionAsset(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.requestJsonWithFallback<Record<string, unknown>>({
+      method: "POST",
+      paths: V4_ENDPOINT_CANDIDATES.visionUpload,
+      body: request,
+    });
+  }
+
+  async uploadVideoAsset(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.requestJsonWithFallback<Record<string, unknown>>({
+      method: "POST",
+      paths: V4_ENDPOINT_CANDIDATES.videoUpload,
+      body: request,
+    });
+  }
+
+  async generateImage(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.requestJsonWithFallback<Record<string, unknown>>({
+      method: "POST",
+      paths: V4_ENDPOINT_CANDIDATES.imageGeneration,
+      body: request,
+    });
+  }
+
+  async generateVideo(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.requestJsonWithFallback<Record<string, unknown>>({
+      method: "POST",
+      paths: V4_ENDPOINT_CANDIDATES.videoGeneration,
+      body: request,
+    });
+  }
+
+  async getV4TaskStatus(taskId: string): Promise<Record<string, unknown>> {
+    return this.requestJsonWithFallback<Record<string, unknown>>({
+      method: "GET",
+      paths: [buildTaskStatusPath(taskId), ...V4_ENDPOINT_CANDIDATES.taskStatusTemplate.map((template) =>
+        template.replace("{task_id}", encodeURIComponent(taskId)),
+      )],
+    });
+  }
+
   private shouldFallback(request: DeepSeekChatCompletionRequest, error: unknown): boolean {
     if (!this.enableReasonerFallback) {
       return false;
@@ -231,6 +273,48 @@ export class DeepSeekApiClient {
 
     const payload = await response.json();
     return payload as T;
+  }
+
+  private async requestJsonWithFallback<T>(options: {
+    method: "GET" | "POST";
+    paths: readonly string[];
+    body?: Record<string, unknown>;
+  }): Promise<T> {
+    const uniquePaths = [...new Set(options.paths)];
+    let lastError: unknown;
+
+    for (let index = 0; index < uniquePaths.length; index += 1) {
+      const currentPath = uniquePaths[index];
+
+      try {
+        return await this.requestJson<T>({
+          method: options.method,
+          path: currentPath,
+          body: options.body,
+          stream: false,
+        });
+      } catch (error) {
+        lastError = error;
+
+        if (!(error instanceof DeepSeekApiError)) {
+          throw error;
+        }
+
+        const shouldTryNext =
+          (error.status === 404 || error.status === 405 || error.status === 501) &&
+          index < uniquePaths.length - 1;
+
+        if (!shouldTryNext) {
+          throw error;
+        }
+      }
+    }
+
+    if (lastError) {
+      throw lastError;
+    }
+
+    throw new DeepSeekApiError("No endpoint path candidates configured");
   }
 
   private async requestSseJson<T>(options: RequestOptions): Promise<T[]> {

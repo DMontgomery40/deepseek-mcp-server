@@ -13,6 +13,7 @@ export interface RuntimeConfig {
   httpPath: string;
   httpStatefulSession: boolean;
   conversationMaxMessages: number;
+  experimentalV4Enabled: boolean;
 }
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -37,6 +38,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     httpPath: normalizePath(env.MCP_HTTP_PATH ?? "/mcp"),
     httpStatefulSession: parseBoolean(env.MCP_HTTP_STATEFUL_SESSION, false),
     conversationMaxMessages: parsePositiveInt(env.CONVERSATION_MAX_MESSAGES, 200),
+    experimentalV4Enabled: parseBoolean(env.DEEPSEEK_EXPERIMENTAL_V4_ENABLED, false),
   };
 }
 

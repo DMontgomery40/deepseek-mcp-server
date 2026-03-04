@@ -4,9 +4,12 @@ build/
 *.log
 .DS_Store
 AGENTS.md
+AGENTS_override.md
 CLAUDE.md
 specs/private/
 .tools/
+.tools/v4-monitor/
+scripts/v4/
 .mcpregistry_github_token
 .mcpregistry_registry_token
 implementations/**/.venv/

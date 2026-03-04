@@ -132,6 +132,60 @@ export const completionToolInputSchema = z.object({
   extra_body: z.record(z.string(), z.unknown()).optional(),
 });
 
+const uploadToolInputBaseSchema = z
+  .object({
+    file_url: z.string().url().optional(),
+    file_base64: z.string().min(1).optional(),
+    mime_type: z.string().min(1).optional(),
+    filename: z.string().min(1).optional(),
+    purpose: z.string().min(1).optional(),
+    model: z.string().optional(),
+    include_raw_response: z.boolean().default(false),
+    extra_body: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((value, context) => {
+    if (!value.file_url && !value.file_base64) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Either `file_url` or `file_base64` must be provided",
+      });
+    }
+  });
+
+export const visionUploadToolInputSchema = uploadToolInputBaseSchema.extend({});
+
+export const videoUploadToolInputSchema = uploadToolInputBaseSchema.extend({});
+
+export const imageGenerationToolInputSchema = z.object({
+  prompt: z.string().min(1),
+  model: z.string().optional(),
+  size: z.string().min(1).optional(),
+  n: z.number().int().positive().max(8).optional(),
+  response_format: z.enum(["url", "b64_json"]).optional(),
+  quality: z.string().min(1).optional(),
+  style: z.string().min(1).optional(),
+  seed: z.number().int().optional(),
+  include_raw_response: z.boolean().default(false),
+  extra_body: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const videoGenerationToolInputSchema = z.object({
+  prompt: z.string().min(1),
+  model: z.string().optional(),
+  duration_seconds: z.number().positive().max(120).optional(),
+  resolution: z.string().min(1).optional(),
+  fps: z.number().positive().max(120).optional(),
+  seed: z.number().int().optional(),
+  image_url: z.string().url().optional(),
+  n: z.number().int().positive().max(4).optional(),
+  wait_for_completion: z.boolean().default(false),
+  poll_interval_ms: z.number().int().positive().max(60000).default(3000),
+  max_wait_ms: z.number().int().positive().max(300000).default(60000),
+  max_stall_polls: z.number().int().positive().max(100).default(12),
+  include_raw_response: z.boolean().default(false),
+  extra_body: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const resetConversationToolInputSchema = z.object({
   conversation_id: z.string().min(1),
 });
@@ -139,3 +193,7 @@ export const resetConversationToolInputSchema = z.object({
 export type ChatCompletionToolInput = z.infer<typeof chatCompletionToolInputSchema>;
 export type CompletionToolInput = z.infer<typeof completionToolInputSchema>;
 export type ResetConversationToolInput = z.infer<typeof resetConversationToolInputSchema>;
+export type VisionUploadToolInput = z.infer<typeof visionUploadToolInputSchema>;
+export type VideoUploadToolInput = z.infer<typeof videoUploadToolInputSchema>;
+export type ImageGenerationToolInput = z.infer<typeof imageGenerationToolInputSchema>;
+export type VideoGenerationToolInput = z.infer<typeof videoGenerationToolInputSchema>;

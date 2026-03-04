@@ -15,10 +15,15 @@ interface Harness {
     createCompletion: ReturnType<typeof vi.fn>;
     listModels: ReturnType<typeof vi.fn>;
     getUserBalance: ReturnType<typeof vi.fn>;
+    uploadVisionAsset: ReturnType<typeof vi.fn>;
+    uploadVideoAsset: ReturnType<typeof vi.fn>;
+    generateImage: ReturnType<typeof vi.fn>;
+    generateVideo: ReturnType<typeof vi.fn>;
+    getV4TaskStatus: ReturnType<typeof vi.fn>;
   };
 }
 
-async function createHarness(): Promise<Harness> {
+async function createHarness(experimentalV4Enabled = false): Promise<Harness> {
   const api = {
     createChatCompletion: vi.fn(async (request) => ({
       response: {
@@ -71,12 +76,38 @@ async function createHarness(): Promise<Harness> {
         },
       ],
     })),
+    uploadVisionAsset: vi.fn(async () => ({
+      id: "vision-asset-1",
+      status: "ok",
+      url: "https://cdn.example.com/vision.jpg",
+    })),
+    uploadVideoAsset: vi.fn(async () => ({
+      id: "video-asset-1",
+      status: "ok",
+      url: "https://cdn.example.com/video.mp4",
+    })),
+    generateImage: vi.fn(async () => ({
+      id: "img-1",
+      status: "completed",
+      data: [{ url: "https://cdn.example.com/image.png" }],
+    })),
+    generateVideo: vi.fn(async () => ({
+      id: "vid-1",
+      task_id: "task-1",
+      status: "queued",
+    })),
+    getV4TaskStatus: vi.fn(async () => ({
+      task_id: "task-1",
+      status: "completed",
+      video_url: "https://cdn.example.com/out.mp4",
+    })),
   };
 
   const mcpServer = createDeepSeekMcpServer({
     client: api as unknown as DeepSeekApiClient,
     conversations: new ConversationStore(200),
     defaultModel: "deepseek-chat",
+    experimentalV4Enabled,
     version: "test",
   });
 
@@ -119,6 +150,10 @@ describe("createDeepSeekMcpServer", () => {
           "get_user_balance",
           "reset_conversation",
           "list_conversations",
+          "vision_upload",
+          "image_generation",
+          "video_upload",
+          "video_generation",
         ]),
       );
 
@@ -229,6 +264,61 @@ describe("createDeepSeekMcpServer", () => {
       const balance = await harness.client.callTool({ name: "get_user_balance", arguments: {} });
       expect(balance.isError).toBeFalsy();
       expect(harness.api.getUserBalance).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("fails fast for v4 tools when feature flag is disabled", async () => {
+    const harness = await createHarness(false);
+
+    try {
+      const result = await harness.client.callTool({
+        name: "vision_upload",
+        arguments: {
+          file_url: "https://example.com/a.jpg",
+        },
+      });
+
+      expect(result.isError).toBe(true);
+      expect((result.structuredContent as Record<string, unknown>)?.error_type).toBe("experimental_feature_disabled");
+      expect(harness.api.uploadVisionAsset).not.toHaveBeenCalled();
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("calls v4 provider methods when feature flag is enabled", async () => {
+    const harness = await createHarness(true);
+
+    try {
+      const vision = await harness.client.callTool({
+        name: "vision_upload",
+        arguments: { file_url: "https://example.com/a.jpg" },
+      });
+      expect(vision.isError).toBeFalsy();
+
+      const image = await harness.client.callTool({
+        name: "image_generation",
+        arguments: { prompt: "A mountain lake at sunset" },
+      });
+      expect(image.isError).toBeFalsy();
+
+      const video = await harness.client.callTool({
+        name: "video_generation",
+        arguments: {
+          prompt: "A short drone shot over mountains",
+          wait_for_completion: true,
+          poll_interval_ms: 1,
+          max_wait_ms: 10,
+        },
+      });
+      expect(video.isError).toBeFalsy();
+
+      expect(harness.api.uploadVisionAsset).toHaveBeenCalledTimes(1);
+      expect(harness.api.generateImage).toHaveBeenCalledTimes(1);
+      expect(harness.api.generateVideo).toHaveBeenCalledTimes(1);
+      expect(harness.api.getV4TaskStatus).toHaveBeenCalledTimes(1);
     } finally {
       await harness.serverClose();
     }

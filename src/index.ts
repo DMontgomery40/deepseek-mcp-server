@@ -28,6 +28,7 @@ async function main(): Promise<void> {
     client,
     conversations,
     defaultModel: config.defaultModel,
+    experimentalV4Enabled: config.experimentalV4Enabled,
   });
 
   if (config.transport === "stdio") {

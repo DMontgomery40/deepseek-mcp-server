@@ -6,21 +6,42 @@ import { DeepSeekApiClient, DeepSeekApiError } from "./deepseek/client.js";
 import {
   ChatCompletionToolInput,
   CompletionToolInput,
+  ImageGenerationToolInput,
+  VideoGenerationToolInput,
+  VideoUploadToolInput,
+  VisionUploadToolInput,
   chatCompletionToolInputSchema,
   completionToolInputSchema,
   emptyToolInputSchema,
+  imageGenerationToolInputSchema,
   resetConversationToolInputSchema,
+  videoGenerationToolInputSchema,
+  videoUploadToolInputSchema,
+  visionUploadToolInputSchema,
 } from "./deepseek/schemas.js";
 import {
   DeepSeekChatCompletionRequest,
   DeepSeekChatMessage,
   DeepSeekCompletionRequest,
 } from "./deepseek/types.js";
+import {
+  buildImageGenerationRequest,
+  buildVideoGenerationRequest,
+  buildVideoUploadRequest,
+  buildVisionUploadRequest,
+  isTerminalTaskStatus,
+  normalizeImageGenerationResponse,
+  normalizeTaskStatusResponse,
+  normalizeUploadResponse,
+  normalizeVideoGenerationResponse,
+  V4_ENDPOINTS,
+} from "./deepseek/v4-mapping.js";
 
 export interface DeepSeekMcpServerOptions {
   client: DeepSeekApiClient;
   conversations: ConversationStore;
   defaultModel: string;
+  experimentalV4Enabled?: boolean;
   version?: string;
 }
 
@@ -48,6 +69,30 @@ const ENDPOINT_MATRIX = [
     method: "GET",
     tool: "get_user_balance",
     description: "Retrieve account balance",
+  },
+  {
+    endpoint: V4_ENDPOINTS.visionUpload,
+    method: "POST",
+    tool: "vision_upload",
+    description: "Experimental v4 vision upload endpoint",
+  },
+  {
+    endpoint: V4_ENDPOINTS.imageGeneration,
+    method: "POST",
+    tool: "image_generation",
+    description: "Experimental v4 image generation endpoint",
+  },
+  {
+    endpoint: V4_ENDPOINTS.videoUpload,
+    method: "POST",
+    tool: "video_upload",
+    description: "Experimental v4 video upload endpoint",
+  },
+  {
+    endpoint: V4_ENDPOINTS.videoGeneration,
+    method: "POST",
+    tool: "video_generation",
+    description: "Experimental v4 video generation endpoint",
   },
 ] as const;
 
@@ -106,6 +151,7 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
               conversation_count: options.conversations.listConversationIds().length,
               supports_streaming: true,
               supports_reasoner_fallback: true,
+              experimental_v4_enabled: options.experimentalV4Enabled ?? false,
             },
             null,
             2,
@@ -214,6 +260,8 @@ function registerPrompts(server: McpServer, options: DeepSeekMcpServerOptions): 
 }
 
 function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): void {
+  const experimentalV4Enabled = options.experimentalV4Enabled ?? false;
+
   server.registerTool(
     "chat_completion",
     {
@@ -447,6 +495,249 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       };
     },
   );
+
+  server.registerTool(
+    "vision_upload",
+    {
+      description:
+        "Experimental v4 tool for uploading visual input assets for multimodal flows. This tool is feature-gated and fails fast when `DEEPSEEK_EXPERIMENTAL_V4_ENABLED=false`.",
+      inputSchema: visionUploadToolInputSchema,
+    },
+    async (input) => {
+      if (!experimentalV4Enabled) {
+        return makeExperimentalFeatureDisabledResult("vision_upload");
+      }
+
+      try {
+        const normalizedInput = input as VisionUploadToolInput;
+        const request = buildVisionUploadRequest(normalizedInput);
+        const response = await options.client.uploadVisionAsset(request);
+        const normalizedResponse = normalizeUploadResponse(response);
+
+        const structuredContent: Record<string, unknown> = {
+          provider_endpoint: V4_ENDPOINTS.visionUpload,
+          asset_id: normalizedResponse.id,
+          asset_url: normalizedResponse.asset_url,
+          status: normalizedResponse.status,
+          bytes: normalizedResponse.bytes,
+        };
+
+        if (normalizedInput.include_raw_response) {
+          structuredContent.raw_response = response;
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: normalizedResponse.id
+                ? `vision_upload accepted (asset_id=${normalizedResponse.id})`
+                : "vision_upload completed with an unrecognized provider payload shape",
+            },
+          ],
+          structuredContent,
+        };
+      } catch (error) {
+        return makeToolErrorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "image_generation",
+    {
+      description:
+        "Experimental v4 tool for image generation. Request/response normalization is intentionally adapter-based for quick endpoint and parameter corrections.",
+      inputSchema: imageGenerationToolInputSchema,
+    },
+    async (input) => {
+      if (!experimentalV4Enabled) {
+        return makeExperimentalFeatureDisabledResult("image_generation");
+      }
+
+      try {
+        const normalizedInput = input as ImageGenerationToolInput;
+        const request = buildImageGenerationRequest(normalizedInput);
+        const response = await options.client.generateImage(request);
+        const normalizedResponse = normalizeImageGenerationResponse(response);
+
+        const structuredContent: Record<string, unknown> = {
+          provider_endpoint: V4_ENDPOINTS.imageGeneration,
+          generation_id: normalizedResponse.id,
+          status: normalizedResponse.status,
+          created: normalizedResponse.created,
+          image_urls: normalizedResponse.image_urls,
+          b64_image_count: normalizedResponse.b64_images.length,
+        };
+
+        if (normalizedInput.include_raw_response) {
+          structuredContent.raw_response = response;
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                normalizedResponse.image_urls.join("\n") ||
+                (normalizedResponse.b64_images.length > 0
+                  ? `image_generation returned ${normalizedResponse.b64_images.length} base64 image(s)`
+                  : "image_generation completed with an unrecognized provider payload shape"),
+            },
+          ],
+          structuredContent,
+        };
+      } catch (error) {
+        return makeToolErrorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "video_upload",
+    {
+      description:
+        "Experimental v4 tool for uploading video assets. This tool is feature-gated and designed for fast adapter updates as upstream specs stabilize.",
+      inputSchema: videoUploadToolInputSchema,
+    },
+    async (input) => {
+      if (!experimentalV4Enabled) {
+        return makeExperimentalFeatureDisabledResult("video_upload");
+      }
+
+      try {
+        const normalizedInput = input as VideoUploadToolInput;
+        const request = buildVideoUploadRequest(normalizedInput);
+        const response = await options.client.uploadVideoAsset(request);
+        const normalizedResponse = normalizeUploadResponse(response);
+
+        const structuredContent: Record<string, unknown> = {
+          provider_endpoint: V4_ENDPOINTS.videoUpload,
+          asset_id: normalizedResponse.id,
+          asset_url: normalizedResponse.asset_url,
+          status: normalizedResponse.status,
+          bytes: normalizedResponse.bytes,
+        };
+
+        if (normalizedInput.include_raw_response) {
+          structuredContent.raw_response = response;
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: normalizedResponse.id
+                ? `video_upload accepted (asset_id=${normalizedResponse.id})`
+                : "video_upload completed with an unrecognized provider payload shape",
+            },
+          ],
+          structuredContent,
+        };
+      } catch (error) {
+        return makeToolErrorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "video_generation",
+    {
+      description:
+        "Experimental v4 tool for video generation. Supports optional polling (`wait_for_completion`) for async task-based providers.",
+      inputSchema: videoGenerationToolInputSchema,
+    },
+    async (input) => {
+      if (!experimentalV4Enabled) {
+        return makeExperimentalFeatureDisabledResult("video_generation");
+      }
+
+      try {
+        const normalizedInput = input as VideoGenerationToolInput;
+        const request = buildVideoGenerationRequest(normalizedInput);
+        const response = await options.client.generateVideo(request);
+        const normalizedResponse = normalizeVideoGenerationResponse(response);
+
+        let finalStatus = normalizedResponse.status;
+        let finalVideoUrl = normalizedResponse.video_url;
+        let pollCount = 0;
+        let stallPolls = 0;
+        let stalledOut = false;
+        let timedOut = false;
+        let lastObservedStatus = finalStatus;
+
+        if (normalizedInput.wait_for_completion && normalizedResponse.task_id) {
+          const started = Date.now();
+          while (Date.now() - started < normalizedInput.max_wait_ms) {
+            await wait(normalizedInput.poll_interval_ms);
+            pollCount += 1;
+
+            const statusResponse = await options.client.getV4TaskStatus(normalizedResponse.task_id);
+            const normalizedStatus = normalizeTaskStatusResponse(statusResponse);
+
+            if (normalizedStatus.status) {
+              if (normalizedStatus.status === lastObservedStatus && !normalizedStatus.video_url) {
+                stallPolls += 1;
+              } else {
+                stallPolls = 0;
+              }
+
+              finalStatus = normalizedStatus.status;
+              lastObservedStatus = normalizedStatus.status;
+            } else if (!normalizedStatus.video_url) {
+              stallPolls += 1;
+            }
+
+            if (normalizedStatus.video_url) {
+              finalVideoUrl = normalizedStatus.video_url;
+              stallPolls = 0;
+            }
+
+            if (isTerminalTaskStatus(normalizedStatus.status)) {
+              break;
+            }
+
+            if (stallPolls >= normalizedInput.max_stall_polls) {
+              stalledOut = true;
+              break;
+            }
+          }
+
+          if (!stalledOut && !isTerminalTaskStatus(finalStatus) && Date.now() - started >= normalizedInput.max_wait_ms) {
+            timedOut = true;
+          }
+        }
+
+        const structuredContent: Record<string, unknown> = {
+          provider_endpoint: V4_ENDPOINTS.videoGeneration,
+          generation_id: normalizedResponse.id,
+          task_id: normalizedResponse.task_id,
+          status: finalStatus,
+          video_url: finalVideoUrl,
+          poll_count: pollCount,
+          poll_stall_count: stallPolls,
+          poll_stalled_out: stalledOut,
+          poll_timed_out: timedOut,
+        };
+
+        if (normalizedInput.include_raw_response) {
+          structuredContent.raw_response = response;
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: finalVideoUrl ?? "(no video_url returned yet)",
+            },
+          ],
+          structuredContent,
+        };
+      } catch (error) {
+        return makeToolErrorResult(error);
+      }
+    },
+  );
 }
 
 function normalizeInputMessages(input: ChatCompletionToolInput): DeepSeekChatMessage[] {
@@ -543,6 +834,41 @@ function buildCompletionRequest(
   }
 
   return request;
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function makeExperimentalFeatureDisabledResult(toolName: string): {
+  isError: true;
+  content: [{ type: "text"; text: string }];
+  structuredContent: {
+    error_type: "experimental_feature_disabled";
+    tool: string;
+    status: null;
+    retryable: false;
+    suggestion: string;
+  };
+} {
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: `${toolName} is disabled. Set DEEPSEEK_EXPERIMENTAL_V4_ENABLED=true to enable speculative v4 tools.`,
+      },
+    ],
+    structuredContent: {
+      error_type: "experimental_feature_disabled",
+      tool: toolName,
+      status: null,
+      retryable: false,
+      suggestion: "Enable DEEPSEEK_EXPERIMENTAL_V4_ENABLED and retry.",
+    },
+  };
 }
 
 function makeToolErrorResult(error: unknown): {
