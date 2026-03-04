@@ -1,6 +1,6 @@
 # Why DeepSeek V4 Is a Big Deal
 
-**A plain-language guide to the four research breakthroughs behind DeepSeek's next model.**
+**A plain-language guide to the breakthroughs behind DeepSeek's next model -- starting with what V3.2 already shipped that nobody else has.**
 
 No ML background needed. If you can follow a conversation, you can follow this.
 
@@ -8,7 +8,33 @@ No ML background needed. If you can follow a conversation, you can follow this.
 
 ## The Short Version
 
-DeepSeek V4 isn't just "a bigger model." It's four separate inventions working together, each solving a problem that every AI lab has been stuck on. Think of it like a car company simultaneously inventing a better engine, better transmission, better fuel system, and better suspension -- then shipping them all at once.
+DeepSeek isn't just iterating. V3.2 already shipped production innovations that no other foundation model has replicated, and V4 stacks four more on top. Think of it like a car company that already has the best transmission on the market, and is now simultaneously dropping a new engine, fuel system, suspension, and chassis.
+
+---
+
+## Already Here: V3.2 Innovations Nobody Has Matched
+
+Before we get to V4, it's worth understanding that DeepSeek is already ahead in ways most people haven't noticed.
+
+### DeepSeek Sparse Attention (DSA)
+
+**The problem:** When a model reads a 128,000-token conversation, standard attention makes every token look at every other token. That's 16 billion comparisons. For long conversations, this is the main bottleneck -- not the model's size, but the sheer volume of "who needs to look at what."
+
+**What DSA does:** Instead of looking at everything, a trained "lightning indexer" scores every past token's relevance and a token selector picks only the top 2,048 most important ones. The model goes from reading the entire book to reading a curated highlight reel -- but the highlights are chosen by a learned function, not a crude rule like "only look at the last N tokens."
+
+**Why nobody else has this:** Other labs use fixed sliding windows or random sparse patterns. DSA is a *learned* sparse attention mechanism trained on 2.1 billion tokens to predict what dense attention would have focused on. It reduces attention complexity from O(L^2) to O(L*k) while maintaining virtually identical output quality. It's in production today.
+
+### Self-Verification with Separate Verifier LLMs
+
+Most models check their own work (if at all) using the same weights that generated the answer. DeepSeek trains separate verifier models that evaluate intermediate reasoning steps using learned rubrics, then uses those evaluations as reward signals for the main model. The judge is not the defendant.
+
+> Paper: [DeepSeek-V3.2](https://arxiv.org/abs/2512.02556) | Code: [github.com/deepseek-ai/DeepSeek-V3.2-Exp](https://github.com/deepseek-ai/DeepSeek-V3.2-Exp)
+
+---
+
+## V4: Four More Breakthroughs, All at Once
+
+V4 isn't just "a bigger model." It's four separate inventions working together, each solving a problem that every AI lab has been stuck on.
 
 ---
 
