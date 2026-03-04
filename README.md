@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/dmontgomery40-deepseek-mcp-server-badge.png)](https://mseep.ai/app/dmontgomery40-deepseek-mcp-server)
+
 # DeepSeek MCP Server
 
 <p align="center">
