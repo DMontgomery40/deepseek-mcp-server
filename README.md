@@ -18,7 +18,7 @@
   <a href="https://glama.ai/mcp/servers/asht4rqltn"><img alt="Glama MCP Listing" src="https://img.shields.io/badge/Glama-MCP%20Listing-7B61FF" /></a>
 </p>
 
-Official DeepSeek MCP server for chat/completions/models/balance.
+Official DeepSeek MCP server for chat/completions/models/balance. [**Why V4 is a big deal**](docs/why-v4-matters.md) (plain-language explainer).
 
 - Hosted remote endpoint: `https://deepseek-mcp.ragweld.com/mcp`
 - Auth: `Authorization: Bearer <token>`
