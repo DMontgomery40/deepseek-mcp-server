@@ -9,9 +9,7 @@ import {
   DeepSeekToolCall,
   DeepSeekUsage,
   DeepSeekUserBalanceResponse,
-  FallbackMetadata,
 } from "./types.js";
-import { V4_ENDPOINTS, V4_ENDPOINT_CANDIDATES, buildTaskStatusPath } from "./v4-mapping.js";
 
 export interface DeepSeekApiClientOptions {
   apiKey: string;
@@ -19,15 +17,11 @@ export interface DeepSeekApiClientOptions {
   timeoutMs?: number;
   userAgent?: string;
   fetchFn?: typeof fetch;
-  enableReasonerFallback?: boolean;
-  fallbackModel?: string;
 }
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_TIMEOUT_MS = 120000;
-const DEFAULT_USER_AGENT = "deepseek-mcp-server/0.3.0";
-const RETRIABLE_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
-
+const DEFAULT_USER_AGENT = "deepseek-mcp-server/0.5.0";
 export class DeepSeekApiError extends Error {
   public readonly status?: number;
   public readonly payload?: unknown;
@@ -73,8 +67,6 @@ export class DeepSeekApiClient {
   private readonly timeoutMs: number;
   private readonly userAgent: string;
   private readonly fetchFn: typeof fetch;
-  private readonly enableReasonerFallback: boolean;
-  private readonly fallbackModel: string;
 
   constructor(options: DeepSeekApiClientOptions) {
     this.apiKey = options.apiKey;
@@ -82,40 +74,9 @@ export class DeepSeekApiClient {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.fetchFn = options.fetchFn ?? fetch;
-    this.enableReasonerFallback = options.enableReasonerFallback ?? true;
-    this.fallbackModel = options.fallbackModel ?? "deepseek-chat";
   }
 
   async createChatCompletion(request: DeepSeekChatCompletionRequest): Promise<ChatCompletionExecutionResult> {
-    try {
-      return await this.createChatCompletionNoFallback(request);
-    } catch (error) {
-      if (!this.shouldFallback(request, error)) {
-        throw error;
-      }
-
-      const fallbackRequest: DeepSeekChatCompletionRequest = {
-        ...request,
-        model: this.fallbackModel,
-      };
-      const fallback = await this.createChatCompletionNoFallback(fallbackRequest);
-
-      const fallbackMetadata: FallbackMetadata = {
-        fromModel: String(request.model),
-        toModel: this.fallbackModel,
-        reason: extractErrorMessage(error),
-      };
-
-      return {
-        ...fallback,
-        fallback: fallbackMetadata,
-      };
-    }
-  }
-
-  private async createChatCompletionNoFallback(
-    request: DeepSeekChatCompletionRequest,
-  ): Promise<ChatCompletionExecutionResult> {
     if (request.stream) {
       const chunks = await this.requestSseJson<unknown>({
         method: "POST",
@@ -141,28 +102,12 @@ export class DeepSeekApiClient {
   }
 
   async createCompletion(request: DeepSeekCompletionRequest): Promise<CompletionExecutionResult> {
-    try {
-      return await this.createCompletionInternal(request);
-    } catch (error) {
-      if (!this.shouldRetryCompletionOnBeta(error)) {
-        throw error;
-      }
-
-      return this.createCompletionInternal(request, this.buildBetaBaseUrl());
-    }
-  }
-
-  private async createCompletionInternal(
-    request: DeepSeekCompletionRequest,
-    baseUrlOverride?: string,
-  ): Promise<CompletionExecutionResult> {
     if (request.stream) {
       const chunks = await this.requestSseJson<unknown>({
         method: "POST",
-        path: "/completions",
+        path: "/beta/completions",
         body: request as Record<string, unknown>,
         stream: true,
-        baseUrlOverride,
       });
 
       return {
@@ -173,10 +118,9 @@ export class DeepSeekApiClient {
 
     const response = await this.requestJson<DeepSeekCompletionResponse>({
       method: "POST",
-      path: "/completions",
+      path: "/beta/completions",
       body: request as Record<string, unknown>,
       stream: false,
-      baseUrlOverride,
     });
 
     return { response };
@@ -198,72 +142,6 @@ export class DeepSeekApiClient {
     });
   }
 
-  async uploadVisionAsset(request: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.requestJsonWithFallback<Record<string, unknown>>({
-      method: "POST",
-      paths: V4_ENDPOINT_CANDIDATES.visionUpload,
-      body: request,
-    });
-  }
-
-  async uploadVideoAsset(request: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.requestJsonWithFallback<Record<string, unknown>>({
-      method: "POST",
-      paths: V4_ENDPOINT_CANDIDATES.videoUpload,
-      body: request,
-    });
-  }
-
-  async generateImage(request: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.requestJsonWithFallback<Record<string, unknown>>({
-      method: "POST",
-      paths: V4_ENDPOINT_CANDIDATES.imageGeneration,
-      body: request,
-    });
-  }
-
-  async generateVideo(request: Record<string, unknown>): Promise<Record<string, unknown>> {
-    return this.requestJsonWithFallback<Record<string, unknown>>({
-      method: "POST",
-      paths: V4_ENDPOINT_CANDIDATES.videoGeneration,
-      body: request,
-    });
-  }
-
-  async getV4TaskStatus(taskId: string): Promise<Record<string, unknown>> {
-    return this.requestJsonWithFallback<Record<string, unknown>>({
-      method: "GET",
-      paths: [buildTaskStatusPath(taskId), ...V4_ENDPOINT_CANDIDATES.taskStatusTemplate.map((template) =>
-        template.replace("{task_id}", encodeURIComponent(taskId)),
-      )],
-    });
-  }
-
-  private shouldFallback(request: DeepSeekChatCompletionRequest, error: unknown): boolean {
-    if (!this.enableReasonerFallback) {
-      return false;
-    }
-
-    const sourceModel = String(request.model);
-    if (sourceModel !== "deepseek-reasoner") {
-      return false;
-    }
-
-    if (sourceModel === this.fallbackModel) {
-      return false;
-    }
-
-    if (!(error instanceof DeepSeekApiError)) {
-      return true;
-    }
-
-    if (error.status === undefined) {
-      return true;
-    }
-
-    return RETRIABLE_STATUS_CODES.has(error.status);
-  }
-
   private async requestJson<T>(options: RequestOptions): Promise<T> {
     const response = await this.send(options);
 
@@ -273,48 +151,6 @@ export class DeepSeekApiClient {
 
     const payload = await response.json();
     return payload as T;
-  }
-
-  private async requestJsonWithFallback<T>(options: {
-    method: "GET" | "POST";
-    paths: readonly string[];
-    body?: Record<string, unknown>;
-  }): Promise<T> {
-    const uniquePaths = [...new Set(options.paths)];
-    let lastError: unknown;
-
-    for (let index = 0; index < uniquePaths.length; index += 1) {
-      const currentPath = uniquePaths[index];
-
-      try {
-        return await this.requestJson<T>({
-          method: options.method,
-          path: currentPath,
-          body: options.body,
-          stream: false,
-        });
-      } catch (error) {
-        lastError = error;
-
-        if (!(error instanceof DeepSeekApiError)) {
-          throw error;
-        }
-
-        const shouldTryNext =
-          (error.status === 404 || error.status === 405 || error.status === 501) &&
-          index < uniquePaths.length - 1;
-
-        if (!shouldTryNext) {
-          throw error;
-        }
-      }
-    }
-
-    if (lastError) {
-      throw lastError;
-    }
-
-    throw new DeepSeekApiError("No endpoint path candidates configured");
   }
 
   private async requestSseJson<T>(options: RequestOptions): Promise<T[]> {
@@ -429,28 +265,6 @@ export class DeepSeekApiClient {
     return `${baseUrl}${normalizedPath}`;
   }
 
-  private buildBetaBaseUrl(): string {
-    try {
-      const parsed = new URL(this.baseUrl);
-      parsed.pathname = "/beta";
-      return parsed.toString().replace(/\/$/, "");
-    } catch {
-      return "https://api.deepseek.com/beta";
-    }
-  }
-
-  private shouldRetryCompletionOnBeta(error: unknown): boolean {
-    if (!(error instanceof DeepSeekApiError)) {
-      return false;
-    }
-
-    if (error.status !== 400) {
-      return false;
-    }
-
-    const message = (error.message ?? "").toLowerCase();
-    return message.includes("completions api is only available when using beta api");
-  }
 }
 
 function normalizeBaseUrl(input: string): string {

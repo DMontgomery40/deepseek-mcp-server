@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 const url = process.env.DEEPSEEK_REMOTE_MCP_URL || "https://deepseek-mcp.ragweld.com/mcp";
 const token = process.env.DEEPSEEK_MCP_AUTH_TOKEN;
-const model = process.env.DEEPSEEK_REMOTE_SMOKE_MODEL || "deepseek-chat";
+const model = process.env.DEEPSEEK_REMOTE_SMOKE_MODEL || "deepseek-v4-flash";
 const expectedText = process.env.DEEPSEEK_REMOTE_SMOKE_EXPECT || "REMOTE_SMOKE_OK";
 const prompt = process.env.DEEPSEEK_REMOTE_SMOKE_PROMPT || `Reply with exactly: ${expectedText}`;
 const timeoutMs = Number(process.env.DEEPSEEK_REMOTE_SMOKE_TIMEOUT_MS || 30000);
@@ -70,7 +70,7 @@ try {
       arguments: {
         message: prompt,
         model,
-        temperature: 0,
+        thinking: { type: "disabled" },
         max_tokens: 32,
       },
     }),

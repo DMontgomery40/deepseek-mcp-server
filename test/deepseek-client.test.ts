@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { DeepSeekApiClient, DeepSeekApiError } from "../src/deepseek/client.js";
-import { V4_ENDPOINTS } from "../src/deepseek/v4-mapping.js";
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -40,7 +39,7 @@ describe("DeepSeekApiClient", () => {
         id: "chat-1",
         object: "chat.completion",
         created: 1,
-        model: "deepseek-chat",
+        model: "deepseek-v4-flash",
         choices: [
           {
             index: 0,
@@ -60,10 +59,11 @@ describe("DeepSeekApiClient", () => {
     });
 
     const result = await client.createChatCompletion({
-      model: "deepseek-chat",
+      model: "deepseek-v4-flash",
       messages: [{ role: "user", content: "hello" }],
-      temperature: 0.2,
-      max_completion_tokens: 1024,
+      thinking: { type: "disabled" },
+      reasoning_effort: "high",
+      max_tokens: 1024,
     });
 
     expect(result.response.choices[0]?.message.content).toBe("hello");
@@ -74,9 +74,11 @@ describe("DeepSeekApiClient", () => {
     expect(init.method).toBe("POST");
 
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("deepseek-chat");
-    expect(body.temperature).toBe(0.2);
-    expect(body.max_completion_tokens).toBe(1024);
+    expect(body.model).toBe("deepseek-v4-flash");
+    expect(body.thinking).toEqual({ type: "disabled" });
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.max_tokens).toBe(1024);
+    expect(body.max_completion_tokens).toBeUndefined();
   });
 
   it("aggregates streaming chat responses with reasoning and tool calls", async () => {
@@ -86,7 +88,7 @@ describe("DeepSeekApiClient", () => {
           id: "chat-stream-1",
           object: "chat.completion.chunk",
           created: 10,
-          model: "deepseek-reasoner",
+          model: "deepseek-v4-flash",
           choices: [
             {
               index: 0,
@@ -114,7 +116,7 @@ describe("DeepSeekApiClient", () => {
           id: "chat-stream-1",
           object: "chat.completion.chunk",
           created: 11,
-          model: "deepseek-reasoner",
+          model: "deepseek-v4-flash",
           choices: [
             {
               index: 0,
@@ -150,13 +152,14 @@ describe("DeepSeekApiClient", () => {
     });
 
     const result = await client.createChatCompletion({
-      model: "deepseek-reasoner",
+      model: "deepseek-v4-flash",
       stream: true,
       messages: [{ role: "user", content: "hi" }],
+      thinking: { type: "enabled" },
     });
 
     expect(result.streamChunkCount).toBe(2);
-    expect(result.response.model).toBe("deepseek-reasoner");
+    expect(result.response.model).toBe("deepseek-v4-flash");
     expect(result.response.choices[0]?.message.content).toBe("Hello world");
     expect(result.response.choices[0]?.message.reasoning_content).toBe("First thought. Second thought.");
     expect(result.response.choices[0]?.message.tool_calls?.[0]?.function.name).toBe("weather");
@@ -164,107 +167,85 @@ describe("DeepSeekApiClient", () => {
     expect(result.response.choices[0]?.finish_reason).toBe("tool_calls");
   });
 
-  it("falls back from deepseek-reasoner to deepseek-chat on retriable failures", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse(
-          {
-            error: {
-              message: "temporarily unavailable",
-            },
-          },
-          503,
-        ),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          id: "chat-2",
-          object: "chat.completion",
-          created: 2,
-          model: "deepseek-chat",
-          choices: [
-            {
-              index: 0,
-              finish_reason: "stop",
-              message: {
-                role: "assistant",
-                content: "fallback answer",
-              },
-            },
-          ],
-        }),
-      );
-
-    const client = new DeepSeekApiClient({
-      apiKey: "test-key",
-      fetchFn: fetchMock,
-      enableReasonerFallback: true,
-      fallbackModel: "deepseek-chat",
-    });
-
-    const result = await client.createChatCompletion({
-      model: "deepseek-reasoner",
-      messages: [{ role: "user", content: "test" }],
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const firstBody = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body));
-    const secondBody = JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body));
-    expect(firstBody.model).toBe("deepseek-reasoner");
-    expect(secondBody.model).toBe("deepseek-chat");
-
-    expect(result.fallback).toEqual({
-      fromModel: "deepseek-reasoner",
-      toModel: "deepseek-chat",
-      reason: "temporarily unavailable",
-    });
-    expect(result.response.choices[0]?.message.content).toBe("fallback answer");
-  });
-
-  it("does not fallback on non-retriable API errors", async () => {
+  it("does not retry or swap models when DeepSeek returns an API error", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse(
         {
           error: {
-            message: "invalid request",
+            message: "temporarily unavailable",
           },
         },
-        400,
+        503,
       ),
     );
 
     const client = new DeepSeekApiClient({
       apiKey: "test-key",
       fetchFn: fetchMock,
-      enableReasonerFallback: true,
     });
 
     await expect(
       client.createChatCompletion({
-        model: "deepseek-reasoner",
+        model: "deepseek-v4-pro",
         messages: [{ role: "user", content: "test" }],
       }),
     ).rejects.toBeInstanceOf(DeepSeekApiError);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body));
+    expect(body.model).toBe("deepseek-v4-pro");
   });
 
-  it("supports streaming /completions aggregation", async () => {
+  it("sends non-stream FIM completion payload directly to /beta/completions", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        id: "cmpl-1",
+        object: "text_completion",
+        created: 20,
+        model: "deepseek-v4-pro",
+        choices: [{ index: 0, text: "ok", finish_reason: "stop" }],
+      }),
+    );
+
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+      baseUrl: "https://api.deepseek.com",
+    });
+
+    const result = await client.createCompletion({
+      model: "deepseek-v4-pro",
+      prompt: "def add(a, b):",
+      suffix: "return result",
+      max_tokens: 16,
+    });
+
+    expect(result.response.choices[0]?.text).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.deepseek.com/beta/completions");
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("deepseek-v4-pro");
+    expect(body.suffix).toBe("return result");
+    expect(body.best_of).toBeUndefined();
+  });
+
+  it("supports streaming FIM completion aggregation", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       sseResponse([
         {
           id: "cmpl-stream-1",
           object: "text_completion.chunk",
           created: 10,
-          model: "deepseek-chat",
+          model: "deepseek-v4-pro",
           choices: [{ index: 0, text: "foo", finish_reason: null }],
         },
         {
           id: "cmpl-stream-1",
           object: "text_completion.chunk",
           created: 11,
-          model: "deepseek-chat",
+          model: "deepseek-v4-pro",
           choices: [{ index: 0, text: "bar", finish_reason: "stop" }],
           usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
         },
@@ -278,7 +259,7 @@ describe("DeepSeekApiClient", () => {
     });
 
     const result = await client.createCompletion({
-      model: "deepseek-chat",
+      model: "deepseek-v4-pro",
       prompt: "abc",
       stream: true,
     });
@@ -286,50 +267,7 @@ describe("DeepSeekApiClient", () => {
     expect(result.streamChunkCount).toBe(2);
     expect(result.response.choices[0]?.text).toBe("foobar");
     expect(result.response.choices[0]?.finish_reason).toBe("stop");
-  });
-
-  it("retries /completions on beta base when DeepSeek requires beta API", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        jsonResponse(
-          {
-            error: {
-              message: "completions api is only available when using beta api (set base_url=\"https://api.deepseek.com/beta\")",
-            },
-          },
-          400,
-        ),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          id: "cmpl-beta-1",
-          object: "text_completion",
-          created: 20,
-          model: "deepseek-chat",
-          choices: [{ index: 0, text: "beta ok", finish_reason: "stop" }],
-        }),
-      );
-
-    const client = new DeepSeekApiClient({
-      apiKey: "test-key",
-      fetchFn: fetchMock,
-      baseUrl: "https://api.deepseek.com",
-    });
-
-    const result = await client.createCompletion({
-      model: "deepseek-chat",
-      prompt: "test",
-      stream: false,
-    });
-
-    expect(result.response.choices[0]?.text).toBe("beta ok");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    const firstUrl = fetchMock.mock.calls[0]?.[0] as string;
-    const secondUrl = fetchMock.mock.calls[1]?.[0] as string;
-    expect(firstUrl).toBe("https://api.deepseek.com/completions");
-    expect(secondUrl).toBe("https://api.deepseek.com/beta/completions");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.deepseek.com/beta/completions");
   });
 
   it("calls /models and /user/balance endpoints", async () => {
@@ -339,8 +277,8 @@ describe("DeepSeekApiClient", () => {
         jsonResponse({
           object: "list",
           data: [
-            { id: "deepseek-chat", object: "model" },
-            { id: "deepseek-reasoner", object: "model" },
+            { id: "deepseek-v4-flash", object: "model" },
+            { id: "deepseek-v4-pro", object: "model" },
           ],
         }),
       )
@@ -366,7 +304,7 @@ describe("DeepSeekApiClient", () => {
     const models = await client.listModels();
     const balance = await client.getUserBalance();
 
-    expect(models.data.map((model) => model.id)).toEqual(["deepseek-chat", "deepseek-reasoner"]);
+    expect(models.data.map((model) => model.id)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
     expect(balance.is_available).toBe(true);
     expect(balance.balance_infos[0]?.currency).toBe("USD");
 
@@ -374,37 +312,5 @@ describe("DeepSeekApiClient", () => {
     const secondUrl = fetchMock.mock.calls[1]?.[0] as string;
     expect(firstUrl).toBe("https://api.deepseek.com/models");
     expect(secondUrl).toBe("https://api.deepseek.com/user/balance");
-  });
-
-  it("calls speculative v4 endpoints through typed client methods", async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(jsonResponse({ id: "file-vision-1", status: "ok" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "file-video-1", status: "ok" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "img-1", data: [{ url: "https://cdn.example.com/i.png" }] }))
-      .mockResolvedValueOnce(jsonResponse({ id: "vid-1", task_id: "task-1", status: "queued" }))
-      .mockResolvedValueOnce(jsonResponse({ task_id: "task-1", status: "completed", video_url: "https://cdn.example.com/v.mp4" }));
-
-    const client = new DeepSeekApiClient({
-      apiKey: "test-key",
-      fetchFn: fetchMock,
-    });
-
-    await client.uploadVisionAsset({ input_url: "https://example.com/a.jpg" });
-    await client.uploadVideoAsset({ input_url: "https://example.com/a.mp4" });
-    await client.generateImage({ prompt: "hello" });
-    await client.generateVideo({ prompt: "hello" });
-    await client.getV4TaskStatus("task-1");
-
-    expect(fetchMock).toHaveBeenCalledTimes(5);
-
-    const urls = fetchMock.mock.calls.map((call) => call[0] as string);
-    expect(urls).toEqual([
-      `https://api.deepseek.com${V4_ENDPOINTS.visionUpload}`,
-      `https://api.deepseek.com${V4_ENDPOINTS.videoUpload}`,
-      `https://api.deepseek.com${V4_ENDPOINTS.imageGeneration}`,
-      `https://api.deepseek.com${V4_ENDPOINTS.videoGeneration}`,
-      "https://api.deepseek.com/tasks/task-1",
-    ]);
   });
 });

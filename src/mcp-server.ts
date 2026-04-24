@@ -6,42 +6,21 @@ import { DeepSeekApiClient, DeepSeekApiError } from "./deepseek/client.js";
 import {
   ChatCompletionToolInput,
   CompletionToolInput,
-  ImageGenerationToolInput,
-  VideoGenerationToolInput,
-  VideoUploadToolInput,
-  VisionUploadToolInput,
   chatCompletionToolInputSchema,
   completionToolInputSchema,
   emptyToolInputSchema,
-  imageGenerationToolInputSchema,
   resetConversationToolInputSchema,
-  videoGenerationToolInputSchema,
-  videoUploadToolInputSchema,
-  visionUploadToolInputSchema,
 } from "./deepseek/schemas.js";
 import {
   DeepSeekChatCompletionRequest,
   DeepSeekChatMessage,
   DeepSeekCompletionRequest,
 } from "./deepseek/types.js";
-import {
-  buildImageGenerationRequest,
-  buildVideoGenerationRequest,
-  buildVideoUploadRequest,
-  buildVisionUploadRequest,
-  isTerminalTaskStatus,
-  normalizeImageGenerationResponse,
-  normalizeTaskStatusResponse,
-  normalizeUploadResponse,
-  normalizeVideoGenerationResponse,
-  V4_ENDPOINTS,
-} from "./deepseek/v4-mapping.js";
 
 export interface DeepSeekMcpServerOptions {
   client: DeepSeekApiClient;
   conversations: ConversationStore;
   defaultModel: string;
-  experimentalV4Enabled?: boolean;
   version?: string;
 }
 
@@ -50,13 +29,13 @@ const ENDPOINT_MATRIX = [
     endpoint: "/chat/completions",
     method: "POST",
     tool: "chat_completion",
-    description: "Chat Completions API (streaming and non-streaming)",
+    description: "V4 Chat Completions API with thinking mode, tool calls, JSON output, streaming and non-streaming",
   },
   {
-    endpoint: "/completions",
+    endpoint: "/beta/completions",
     method: "POST",
     tool: "completion",
-    description: "Text/FIM Completions API (streaming and non-streaming)",
+    description: "V4 Pro FIM Completions API",
   },
   {
     endpoint: "/models",
@@ -70,33 +49,9 @@ const ENDPOINT_MATRIX = [
     tool: "get_user_balance",
     description: "Retrieve account balance",
   },
-  {
-    endpoint: V4_ENDPOINTS.visionUpload,
-    method: "POST",
-    tool: "vision_upload",
-    description: "Experimental v4 vision upload endpoint",
-  },
-  {
-    endpoint: V4_ENDPOINTS.imageGeneration,
-    method: "POST",
-    tool: "image_generation",
-    description: "Experimental v4 image generation endpoint",
-  },
-  {
-    endpoint: V4_ENDPOINTS.videoUpload,
-    method: "POST",
-    tool: "video_upload",
-    description: "Experimental v4 video upload endpoint",
-  },
-  {
-    endpoint: V4_ENDPOINTS.videoGeneration,
-    method: "POST",
-    tool: "video_generation",
-    description: "Experimental v4 video generation endpoint",
-  },
 ] as const;
 
-const SERVER_VERSION = "0.4.0";
+const SERVER_VERSION = "0.5.0";
 const RETRYABLE_DEEPSEEK_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
 
 export function createDeepSeekMcpServer(options: DeepSeekMcpServerOptions): McpServer {
@@ -148,10 +103,10 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
               server_name: "deepseek-mcp-server",
               server_version: options.version ?? SERVER_VERSION,
               default_model: options.defaultModel,
+              current_models: ["deepseek-v4-flash", "deepseek-v4-pro"],
               conversation_count: options.conversations.listConversationIds().length,
               supports_streaming: true,
-              supports_reasoner_fallback: true,
-              experimental_v4_enabled: options.experimentalV4Enabled ?? false,
+              supports_thinking_mode: true,
             },
             null,
             2,
@@ -260,13 +215,11 @@ function registerPrompts(server: McpServer, options: DeepSeekMcpServerOptions): 
 }
 
 function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): void {
-  const experimentalV4Enabled = options.experimentalV4Enabled ?? false;
-
   server.registerTool(
     "chat_completion",
     {
       description:
-        "Primary DeepSeek chat tool for single-turn and multi-turn generation. Provide either `message` (simple single user turn) or `messages` (full chat history); if both are provided, `messages` is used. Use `conversation_id` to persist context across calls and `clear_conversation=true` to reset stored state before sending the next turn. Set `include_raw_response=true` only for debugging, because it returns the full provider payload and increases token usage.",
+        "Primary DeepSeek V4 chat tool for single-turn and multi-turn generation. Defaults to `deepseek-v4-flash`; use `deepseek-v4-pro` for higher-capability reasoning. Provide either `message` (simple single user turn) or `messages` (full chat history); if both are provided, `messages` is used. Thinking mode is enabled by DeepSeek by default; pass `thinking:{type:\"disabled\"}` for non-thinking mode, and use `reasoning_effort:\"high\"|\"max\"` when thinking is enabled. Use `conversation_id` to persist context across calls and `clear_conversation=true` to reset stored state before sending the next turn. Set `include_raw_response=true` only for debugging because it returns the full provider payload.",
       inputSchema: chatCompletionToolInputSchema,
     },
     async (input) => {
@@ -306,9 +259,6 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         const includeRawResponse = normalizedInput.include_raw_response;
 
         const summary = [
-          result.fallback
-            ? `Fallback used: ${result.fallback.fromModel} -> ${result.fallback.toModel}`
-            : undefined,
           responseText || "(no assistant content returned)",
           reasoning ? "\nReasoning:\n" + reasoning : undefined,
           toolCalls.length > 0 ? "\nTool calls returned by model: " + JSON.stringify(toolCalls, null, 2) : undefined,
@@ -324,7 +274,6 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
           tool_calls: toolCalls,
           finish_reason: choice?.finish_reason ?? null,
           usage: result.response.usage ?? null,
-          fallback: result.fallback ?? null,
           stream_chunk_count: result.streamChunkCount ?? null,
         };
 
@@ -346,7 +295,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
     "completion",
     {
       description:
-        "DeepSeek text/FIM completion tool for prompt-completion workflows. Use this when you need raw completion text instead of chat message formatting. Supports the same generation controls as the provider completion endpoint and can aggregate streamed output. Set `include_raw_response=true` only when you need the full provider payload for debugging.",
+        "DeepSeek V4 Pro FIM completion tool for prompt/suffix fill-in-the-middle workflows. Defaults to `deepseek-v4-pro`. Use this when you need raw completion text instead of chat message formatting. Set `include_raw_response=true` only when you need the full provider payload for debugging.",
       inputSchema: completionToolInputSchema,
     },
     async (input) => {
@@ -495,249 +444,6 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       };
     },
   );
-
-  server.registerTool(
-    "vision_upload",
-    {
-      description:
-        "Experimental v4 tool for uploading visual input assets for multimodal flows. This tool is feature-gated and fails fast when `DEEPSEEK_EXPERIMENTAL_V4_ENABLED=false`.",
-      inputSchema: visionUploadToolInputSchema,
-    },
-    async (input) => {
-      if (!experimentalV4Enabled) {
-        return makeExperimentalFeatureDisabledResult("vision_upload");
-      }
-
-      try {
-        const normalizedInput = input as VisionUploadToolInput;
-        const request = buildVisionUploadRequest(normalizedInput);
-        const response = await options.client.uploadVisionAsset(request);
-        const normalizedResponse = normalizeUploadResponse(response);
-
-        const structuredContent: Record<string, unknown> = {
-          provider_endpoint: V4_ENDPOINTS.visionUpload,
-          asset_id: normalizedResponse.id,
-          asset_url: normalizedResponse.asset_url,
-          status: normalizedResponse.status,
-          bytes: normalizedResponse.bytes,
-        };
-
-        if (normalizedInput.include_raw_response) {
-          structuredContent.raw_response = response;
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: normalizedResponse.id
-                ? `vision_upload accepted (asset_id=${normalizedResponse.id})`
-                : "vision_upload completed with an unrecognized provider payload shape",
-            },
-          ],
-          structuredContent,
-        };
-      } catch (error) {
-        return makeToolErrorResult(error);
-      }
-    },
-  );
-
-  server.registerTool(
-    "image_generation",
-    {
-      description:
-        "Experimental v4 tool for image generation. Request/response normalization is intentionally adapter-based for quick endpoint and parameter corrections.",
-      inputSchema: imageGenerationToolInputSchema,
-    },
-    async (input) => {
-      if (!experimentalV4Enabled) {
-        return makeExperimentalFeatureDisabledResult("image_generation");
-      }
-
-      try {
-        const normalizedInput = input as ImageGenerationToolInput;
-        const request = buildImageGenerationRequest(normalizedInput);
-        const response = await options.client.generateImage(request);
-        const normalizedResponse = normalizeImageGenerationResponse(response);
-
-        const structuredContent: Record<string, unknown> = {
-          provider_endpoint: V4_ENDPOINTS.imageGeneration,
-          generation_id: normalizedResponse.id,
-          status: normalizedResponse.status,
-          created: normalizedResponse.created,
-          image_urls: normalizedResponse.image_urls,
-          b64_image_count: normalizedResponse.b64_images.length,
-        };
-
-        if (normalizedInput.include_raw_response) {
-          structuredContent.raw_response = response;
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                normalizedResponse.image_urls.join("\n") ||
-                (normalizedResponse.b64_images.length > 0
-                  ? `image_generation returned ${normalizedResponse.b64_images.length} base64 image(s)`
-                  : "image_generation completed with an unrecognized provider payload shape"),
-            },
-          ],
-          structuredContent,
-        };
-      } catch (error) {
-        return makeToolErrorResult(error);
-      }
-    },
-  );
-
-  server.registerTool(
-    "video_upload",
-    {
-      description:
-        "Experimental v4 tool for uploading video assets. This tool is feature-gated and designed for fast adapter updates as upstream specs stabilize.",
-      inputSchema: videoUploadToolInputSchema,
-    },
-    async (input) => {
-      if (!experimentalV4Enabled) {
-        return makeExperimentalFeatureDisabledResult("video_upload");
-      }
-
-      try {
-        const normalizedInput = input as VideoUploadToolInput;
-        const request = buildVideoUploadRequest(normalizedInput);
-        const response = await options.client.uploadVideoAsset(request);
-        const normalizedResponse = normalizeUploadResponse(response);
-
-        const structuredContent: Record<string, unknown> = {
-          provider_endpoint: V4_ENDPOINTS.videoUpload,
-          asset_id: normalizedResponse.id,
-          asset_url: normalizedResponse.asset_url,
-          status: normalizedResponse.status,
-          bytes: normalizedResponse.bytes,
-        };
-
-        if (normalizedInput.include_raw_response) {
-          structuredContent.raw_response = response;
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: normalizedResponse.id
-                ? `video_upload accepted (asset_id=${normalizedResponse.id})`
-                : "video_upload completed with an unrecognized provider payload shape",
-            },
-          ],
-          structuredContent,
-        };
-      } catch (error) {
-        return makeToolErrorResult(error);
-      }
-    },
-  );
-
-  server.registerTool(
-    "video_generation",
-    {
-      description:
-        "Experimental v4 tool for video generation. Supports optional polling (`wait_for_completion`) for async task-based providers.",
-      inputSchema: videoGenerationToolInputSchema,
-    },
-    async (input) => {
-      if (!experimentalV4Enabled) {
-        return makeExperimentalFeatureDisabledResult("video_generation");
-      }
-
-      try {
-        const normalizedInput = input as VideoGenerationToolInput;
-        const request = buildVideoGenerationRequest(normalizedInput);
-        const response = await options.client.generateVideo(request);
-        const normalizedResponse = normalizeVideoGenerationResponse(response);
-
-        let finalStatus = normalizedResponse.status;
-        let finalVideoUrl = normalizedResponse.video_url;
-        let pollCount = 0;
-        let stallPolls = 0;
-        let stalledOut = false;
-        let timedOut = false;
-        let lastObservedStatus = finalStatus;
-
-        if (normalizedInput.wait_for_completion && normalizedResponse.task_id) {
-          const started = Date.now();
-          while (Date.now() - started < normalizedInput.max_wait_ms) {
-            await wait(normalizedInput.poll_interval_ms);
-            pollCount += 1;
-
-            const statusResponse = await options.client.getV4TaskStatus(normalizedResponse.task_id);
-            const normalizedStatus = normalizeTaskStatusResponse(statusResponse);
-
-            if (normalizedStatus.status) {
-              if (normalizedStatus.status === lastObservedStatus && !normalizedStatus.video_url) {
-                stallPolls += 1;
-              } else {
-                stallPolls = 0;
-              }
-
-              finalStatus = normalizedStatus.status;
-              lastObservedStatus = normalizedStatus.status;
-            } else if (!normalizedStatus.video_url) {
-              stallPolls += 1;
-            }
-
-            if (normalizedStatus.video_url) {
-              finalVideoUrl = normalizedStatus.video_url;
-              stallPolls = 0;
-            }
-
-            if (isTerminalTaskStatus(normalizedStatus.status)) {
-              break;
-            }
-
-            if (stallPolls >= normalizedInput.max_stall_polls) {
-              stalledOut = true;
-              break;
-            }
-          }
-
-          if (!stalledOut && !isTerminalTaskStatus(finalStatus) && Date.now() - started >= normalizedInput.max_wait_ms) {
-            timedOut = true;
-          }
-        }
-
-        const structuredContent: Record<string, unknown> = {
-          provider_endpoint: V4_ENDPOINTS.videoGeneration,
-          generation_id: normalizedResponse.id,
-          task_id: normalizedResponse.task_id,
-          status: finalStatus,
-          video_url: finalVideoUrl,
-          poll_count: pollCount,
-          poll_stall_count: stallPolls,
-          poll_stalled_out: stalledOut,
-          poll_timed_out: timedOut,
-        };
-
-        if (normalizedInput.include_raw_response) {
-          structuredContent.raw_response = response;
-        }
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: finalVideoUrl ?? "(no video_url returned yet)",
-            },
-          ],
-          structuredContent,
-        };
-      } catch (error) {
-        return makeToolErrorResult(error);
-      }
-    },
-  );
 }
 
 function normalizeInputMessages(input: ChatCompletionToolInput): DeepSeekChatMessage[] {
@@ -765,7 +471,6 @@ function buildChatCompletionRequest(
   const optionalFields: (keyof ChatCompletionToolInput)[] = [
     "frequency_penalty",
     "max_tokens",
-    "max_completion_tokens",
     "presence_penalty",
     "response_format",
     "stop",
@@ -778,8 +483,7 @@ function buildChatCompletionRequest(
     "logprobs",
     "top_logprobs",
     "thinking",
-    "modalities",
-    "audio",
+    "reasoning_effort",
   ];
   const requestRecord = request as Record<string, unknown>;
 
@@ -811,14 +515,12 @@ function buildCompletionRequest(
     "max_tokens",
     "temperature",
     "top_p",
-    "n",
     "stream",
     "logprobs",
     "echo",
     "stop",
     "presence_penalty",
     "frequency_penalty",
-    "best_of",
   ];
   const requestRecord = request as Record<string, unknown>;
 
@@ -834,41 +536,6 @@ function buildCompletionRequest(
   }
 
   return request;
-}
-
-async function wait(ms: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function makeExperimentalFeatureDisabledResult(toolName: string): {
-  isError: true;
-  content: [{ type: "text"; text: string }];
-  structuredContent: {
-    error_type: "experimental_feature_disabled";
-    tool: string;
-    status: null;
-    retryable: false;
-    suggestion: string;
-  };
-} {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: `${toolName} is disabled. Set DEEPSEEK_EXPERIMENTAL_V4_ENABLED=true to enable speculative v4 tools.`,
-      },
-    ],
-    structuredContent: {
-      error_type: "experimental_feature_disabled",
-      tool: toolName,
-      status: null,
-      retryable: false,
-      suggestion: "Enable DEEPSEEK_EXPERIMENTAL_V4_ENABLED and retry.",
-    },
-  };
 }
 
 function makeToolErrorResult(error: unknown): {

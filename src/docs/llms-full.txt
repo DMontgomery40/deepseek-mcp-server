@@ -1379,7 +1379,7 @@ Robust error handling should:
 *   Handle timeout errors
 *   Manage rate limits
 *   Validate responses
-*   Provide fallback behaviors
+*   Provide explicit error handling behaviors
 *   Log errors appropriately
 
 ## Limitations
@@ -4452,5 +4452,4 @@ Each host application may implement MCP features differently or support differen
     Browse our collection of example servers to see what's possible.
   </Card>
 </CardGroup>
-
 

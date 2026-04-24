@@ -1,4 +1,4 @@
-export type DeepSeekModelId = "deepseek-chat" | "deepseek-reasoner" | string;
+export type DeepSeekModelId = "deepseek-v4-flash" | "deepseek-v4-pro" | string;
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
 
@@ -6,16 +6,6 @@ export interface ChatContentPartText {
   type: "text";
   text: string;
 }
-
-export interface ChatContentPartImage {
-  type: "image_url";
-  image_url: {
-    url: string;
-    detail?: string;
-  };
-}
-
-export type ChatContentPart = ChatContentPartText | ChatContentPartImage | Record<string, unknown>;
 
 export interface DeepSeekFunctionCall {
   name: string;
@@ -31,7 +21,7 @@ export interface DeepSeekToolCall {
 
 export interface DeepSeekChatMessage {
   role: ChatRole;
-  content?: string | ChatContentPart[] | null;
+  content?: string | null;
   name?: string;
   tool_call_id?: string;
   prefix?: boolean;
@@ -65,7 +55,6 @@ export interface DeepSeekChatCompletionRequest {
   messages: DeepSeekChatMessage[];
   frequency_penalty?: number;
   max_tokens?: number;
-  max_completion_tokens?: number;
   presence_penalty?: number;
   response_format?: {
     type: "text" | "json_object";
@@ -79,9 +68,10 @@ export interface DeepSeekChatCompletionRequest {
   tool_choice?: DeepSeekToolChoice;
   logprobs?: boolean;
   top_logprobs?: number;
-  thinking?: Record<string, unknown>;
-  modalities?: string[];
-  audio?: Record<string, unknown>;
+  thinking?: {
+    type?: "enabled" | "disabled";
+  };
+  reasoning_effort?: "high" | "max";
   [key: string]: unknown;
 }
 
@@ -92,14 +82,12 @@ export interface DeepSeekCompletionRequest {
   max_tokens?: number;
   temperature?: number;
   top_p?: number;
-  n?: number;
   stream?: boolean;
   logprobs?: number;
   echo?: boolean;
   stop?: string | string[];
   presence_penalty?: number;
   frequency_penalty?: number;
-  best_of?: number;
   [key: string]: unknown;
 }
 
@@ -182,15 +170,8 @@ export interface DeepSeekUserBalanceResponse {
   balance_infos: DeepSeekBalanceInfo[];
 }
 
-export interface FallbackMetadata {
-  fromModel: string;
-  toModel: string;
-  reason: string;
-}
-
 export interface ChatCompletionExecutionResult {
   response: DeepSeekChatCompletionResponse;
-  fallback?: FallbackMetadata;
   streamChunkCount?: number;
 }
 

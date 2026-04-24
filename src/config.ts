@@ -5,15 +5,12 @@ export interface RuntimeConfig {
   deepseekBaseUrl: string;
   deepseekRequestTimeoutMs: number;
   defaultModel: string;
-  enableReasonerFallback: boolean;
-  fallbackModel: string;
   transport: McpTransportMode;
   httpHost: string;
   httpPort: number;
   httpPath: string;
   httpStatefulSession: boolean;
   conversationMaxMessages: number;
-  experimentalV4Enabled: boolean;
 }
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -29,22 +26,19 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     deepseekApiKey,
     deepseekBaseUrl: env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
     deepseekRequestTimeoutMs: parsePositiveInt(env.DEEPSEEK_REQUEST_TIMEOUT_MS, 120000),
-    defaultModel: env.DEEPSEEK_DEFAULT_MODEL ?? "deepseek-chat",
-    enableReasonerFallback: parseBoolean(env.DEEPSEEK_ENABLE_REASONER_FALLBACK, true),
-    fallbackModel: env.DEEPSEEK_FALLBACK_MODEL ?? "deepseek-chat",
+    defaultModel: env.DEEPSEEK_DEFAULT_MODEL ?? "deepseek-v4-flash",
     transport,
     httpHost: env.MCP_HTTP_HOST ?? "127.0.0.1",
     httpPort: parsePort(env.MCP_HTTP_PORT, 3001),
     httpPath: normalizePath(env.MCP_HTTP_PATH ?? "/mcp"),
     httpStatefulSession: parseBoolean(env.MCP_HTTP_STATEFUL_SESSION, false),
     conversationMaxMessages: parsePositiveInt(env.CONVERSATION_MAX_MESSAGES, 200),
-    experimentalV4Enabled: parseBoolean(env.DEEPSEEK_EXPERIMENTAL_V4_ENABLED, false),
   };
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
   if (value === undefined) {
-    return fallback;
+    return defaultValue;
   }
 
   const normalized = value.trim().toLowerCase();
@@ -56,30 +50,30 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
     return false;
   }
 
-  return fallback;
+  return defaultValue;
 }
 
-function parsePositiveInt(value: string | undefined, fallback: number): number {
+function parsePositiveInt(value: string | undefined, defaultValue: number): number {
   if (!value) {
-    return fallback;
+    return defaultValue;
   }
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
+    return defaultValue;
   }
 
   return parsed;
 }
 
-function parsePort(value: string | undefined, fallback: number): number {
+function parsePort(value: string | undefined, defaultValue: number): number {
   if (!value) {
-    return fallback;
+    return defaultValue;
   }
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-    return fallback;
+    return defaultValue;
   }
 
   return parsed;

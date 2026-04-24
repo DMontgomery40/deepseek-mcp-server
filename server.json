@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.DMontgomery40/deepseek",
   "title": "DeepSeek MCP Server",
-  "description": "Official DeepSeek MCP server for chat, completion, model listing, and balance endpoints.",
+  "description": "DeepSeek V4 MCP server for chat, FIM completion, model listing, and balance endpoints.",
   "websiteUrl": "https://github.com/DMontgomery40/deepseek-mcp-server",
   "repository": {
     "url": "https://github.com/DMontgomery40/deepseek-mcp-server",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.5.0",
   "remotes": [
     {
       "type": "streamable-http",
@@ -28,7 +28,7 @@
     {
       "registryType": "npm",
       "identifier": "deepseek-mcp-server",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
@@ -43,7 +43,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "docker.io/dmontgomery40/deepseek-mcp-server:0.4.0",
+      "identifier": "docker.io/dmontgomery40/deepseek-mcp-server:0.5.0",
       "transport": {
         "type": "stdio"
       },

@@ -18,11 +18,7 @@ startCommand:
       defaultModel:
         type: string
         description: Default model used by MCP tools.
-        default: deepseek-chat
-      enableReasonerFallback:
-        type: boolean
-        description: Automatically fall back from deepseek-reasoner to deepseek-chat on retriable failures.
-        default: true
+        default: deepseek-v4-flash
   commandFunction:
     # A function that produces the CLI command to start the MCP on stdio.
     |-
@@ -32,7 +28,6 @@ startCommand:
       env: {
         DEEPSEEK_API_KEY: config.deepseekApiKey,
         DEEPSEEK_BASE_URL: config.deepseekBaseUrl ?? 'https://api.deepseek.com',
-        DEEPSEEK_DEFAULT_MODEL: config.defaultModel ?? 'deepseek-chat',
-        DEEPSEEK_ENABLE_REASONER_FALLBACK: String(config.enableReasonerFallback ?? true),
+        DEEPSEEK_DEFAULT_MODEL: config.defaultModel ?? 'deepseek-v4-flash',
       }
     })

@@ -18,8 +18,6 @@ async function main(): Promise<void> {
     apiKey: config.deepseekApiKey,
     baseUrl: config.deepseekBaseUrl,
     timeoutMs: config.deepseekRequestTimeoutMs,
-    enableReasonerFallback: config.enableReasonerFallback,
-    fallbackModel: config.fallbackModel,
   });
 
   const conversations = new ConversationStore(config.conversationMaxMessages);
@@ -28,7 +26,6 @@ async function main(): Promise<void> {
     client,
     conversations,
     defaultModel: config.defaultModel,
-    experimentalV4Enabled: config.experimentalV4Enabled,
   });
 
   if (config.transport === "stdio") {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
+import { ConversationStore } from "../build/conversation-store.js";
 import { DeepSeekApiClient } from "../build/deepseek/client.js";
 import { createDeepSeekMcpServer } from "../build/mcp-server.js";
-import { ConversationStore } from "../build/conversation-store.js";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -13,12 +13,12 @@ if (!apiKey) {
 }
 
 const baseUrl = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
+const timeoutMs = Number(process.env.DEEPSEEK_REQUEST_TIMEOUT_MS || 120000);
 
 const client = new DeepSeekApiClient({
   apiKey,
   baseUrl,
-  timeoutMs: Number(process.env.DEEPSEEK_REQUEST_TIMEOUT_MS || 120000),
-  enableReasonerFallback: true,
+  timeoutMs,
 });
 
 const endpointResults = {};
@@ -44,80 +44,106 @@ async function runEndpoint(name, fn) {
 
 await runEndpoint("GET /models", async () => {
   const models = await client.listModels();
+  const ids = Array.isArray(models.data) ? models.data.map((model) => model.id) : [];
+
+  assert(ids.includes("deepseek-v4-flash"), "models response did not include deepseek-v4-flash");
+  assert(ids.includes("deepseek-v4-pro"), "models response did not include deepseek-v4-pro");
+
   return {
-    count: Array.isArray(models.data) ? models.data.length : 0,
-    first_models: Array.isArray(models.data) ? models.data.slice(0, 5).map((m) => m.id) : [],
+    object: models.object,
+    ids,
   };
 });
 
 await runEndpoint("GET /user/balance", async () => {
   const balance = await client.getUserBalance();
+  assert(typeof balance.is_available === "boolean", "balance response missing boolean is_available");
+  assert(Array.isArray(balance.balance_infos), "balance response missing balance_infos array");
+
   return {
     is_available: balance.is_available,
-    currencies: Array.isArray(balance.balance_infos) ? balance.balance_infos.map((b) => b.currency) : [],
+    currencies: balance.balance_infos.map((item) => item.currency),
   };
 });
 
-await runEndpoint("POST /chat/completions (non-stream)", async () => {
+await runEndpoint("POST /chat/completions non-thinking", async () => {
   const result = await client.createChatCompletion({
-    model: "deepseek-chat",
+    model: "deepseek-v4-flash",
     messages: [{ role: "user", content: "Reply exactly with LIVE_CHAT_OK" }],
-    temperature: 0,
+    thinking: { type: "disabled" },
     max_tokens: 32,
   });
 
+  const choice = result.response.choices?.[0];
+  const text = choice?.message?.content ?? "";
+
+  assert(result.response.object === "chat.completion", "non-stream chat object shape mismatch");
+  assert(result.response.model === "deepseek-v4-flash", "non-stream chat returned unexpected model");
+  assert(text.includes("LIVE_CHAT_OK"), `non-stream chat text missing marker: ${text}`);
+  assert(!choice?.message?.reasoning_content, "non-thinking chat unexpectedly returned reasoning_content");
+
   return {
+    id: result.response.id,
     model: result.response.model,
-    finish_reason: result.response.choices?.[0]?.finish_reason ?? null,
-    text: result.response.choices?.[0]?.message?.content ?? null,
-    fallback: result.fallback ?? null,
+    finish_reason: choice?.finish_reason ?? null,
+    text,
+    has_reasoning_content: Boolean(choice?.message?.reasoning_content),
+    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
   };
 });
 
-await runEndpoint("POST /chat/completions (stream)", async () => {
+await runEndpoint("POST /chat/completions thinking stream", async () => {
   const result = await client.createChatCompletion({
-    model: "deepseek-chat",
+    model: "deepseek-v4-flash",
     stream: true,
-    messages: [{ role: "user", content: "Reply exactly with LIVE_STREAM_OK" }],
-    temperature: 0,
-    max_tokens: 32,
+    messages: [{ role: "user", content: "Compute 19 + 23, then end with LIVE_STREAM_REASONING_OK:42" }],
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
+    max_tokens: 256,
   });
 
+  const choice = result.response.choices?.[0];
+  const text = choice?.message?.content ?? "";
+  const reasoning = choice?.message?.reasoning_content ?? "";
+
+  assert(result.response.object === "chat.completion", "stream chat aggregate object shape mismatch");
+  assert((result.streamChunkCount ?? 0) > 0, "stream chat returned no chunks");
+  assert(text.includes("LIVE_STREAM_REASONING_OK:42"), `stream chat text missing marker: ${text}`);
+  assert(reasoning.length > 0, "thinking stream did not aggregate reasoning_content");
+
   return {
+    id: result.response.id,
     model: result.response.model,
     chunks: result.streamChunkCount ?? null,
-    text: result.response.choices?.[0]?.message?.content ?? null,
+    finish_reason: choice?.finish_reason ?? null,
+    text,
+    reasoning_preview: reasoning.slice(0, 200),
+    reasoning_length: reasoning.length,
+    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
   };
 });
 
-await runEndpoint("POST /completions (non-stream)", async () => {
+await runEndpoint("POST /beta/completions FIM", async () => {
   const result = await client.createCompletion({
-    model: "deepseek-chat",
-    prompt: "Say LIVE_COMPLETION_OK",
-    temperature: 0,
+    model: "deepseek-v4-pro",
+    prompt: 'const marker = "LIVE_',
+    suffix: '";',
     max_tokens: 16,
   });
 
-  return {
-    model: result.response.model,
-    finish_reason: result.response.choices?.[0]?.finish_reason ?? null,
-    text: result.response.choices?.[0]?.text ?? null,
-  };
-});
+  const choice = result.response.choices?.[0];
+  const text = choice?.text ?? "";
 
-await runEndpoint("POST /completions (stream)", async () => {
-  const result = await client.createCompletion({
-    model: "deepseek-chat",
-    prompt: "Say LIVE_COMPLETION_STREAM_OK",
-    stream: true,
-    temperature: 0,
-    max_tokens: 16,
-  });
+  assert(result.response.object === "text_completion", "FIM completion object shape mismatch");
+  assert(result.response.model === "deepseek-v4-pro", "FIM completion returned unexpected model");
+  assert(typeof text === "string", "FIM completion text was not a string");
 
   return {
+    id: result.response.id,
     model: result.response.model,
-    chunks: result.streamChunkCount ?? null,
-    text: result.response.choices?.[0]?.text ?? null,
+    finish_reason: choice?.finish_reason ?? null,
+    text,
+    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
   };
 });
 
@@ -128,7 +154,7 @@ async function runTool(tool, args) {
     const server = createDeepSeekMcpServer({
       client,
       conversations: new ConversationStore(200),
-      defaultModel: "deepseek-chat",
+      defaultModel: "deepseek-v4-flash",
       version: "live-smoke",
     });
 
@@ -147,6 +173,7 @@ async function runTool(tool, args) {
       ok: !result.isError,
       isError: !!result.isError,
       text_preview: textBlock?.text ? textBlock.text.slice(0, 200) : null,
+      structured_keys: result.structuredContent ? Object.keys(result.structuredContent).sort() : [],
     };
   } catch (error) {
     mcpResults[tool] = {
@@ -160,14 +187,14 @@ await runTool("list_models", {});
 await runTool("get_user_balance", {});
 await runTool("chat_completion", {
   message: "Reply exactly with MCP_CHAT_OK",
-  model: "deepseek-chat",
-  temperature: 0,
+  model: "deepseek-v4-flash",
+  thinking: { type: "disabled" },
   max_tokens: 32,
 });
 await runTool("completion", {
-  prompt: "Say MCP_COMPLETION_OK",
-  model: "deepseek-chat",
-  temperature: 0,
+  prompt: 'const marker = "MCP_',
+  suffix: '";',
+  model: "deepseek-v4-pro",
   max_tokens: 16,
 });
 
@@ -185,4 +212,10 @@ const failedTools = Object.values(mcpResults).filter((result) => !result.ok).len
 
 if (failedEndpoints > 0 || failedTools > 0) {
   process.exit(1);
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
 }
