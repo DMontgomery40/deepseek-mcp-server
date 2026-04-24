@@ -6,7 +6,7 @@
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "deepseek-mcp-server": "./build/index.js"
+    "deepseek-mcp-server": "build/index.js"
   },
   "files": [
     "build/**/*",
@@ -41,7 +41,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DMontgomery40/deepseek-mcp-server"
+    "url": "git+https://github.com/DMontgomery40/deepseek-mcp-server.git"
   },
   "keywords": [
     "mcp",
