@@ -13,12 +13,13 @@ interface Harness {
   api: {
     createChatCompletion: ReturnType<typeof vi.fn>;
     createCompletion: ReturnType<typeof vi.fn>;
+    createResponse: ReturnType<typeof vi.fn>;
     listModels: ReturnType<typeof vi.fn>;
     getUserBalance: ReturnType<typeof vi.fn>;
   };
 }
 
-async function createHarness(): Promise<Harness> {
+async function createHarness(defaultModel = "deepseek-v4-flash"): Promise<Harness> {
   const api = {
     createChatCompletion: vi.fn(async (request) => ({
       response: {
@@ -54,6 +55,29 @@ async function createHarness(): Promise<Harness> {
         ],
       },
     })),
+    createResponse: vi.fn(async (request) => ({
+      response: {
+        id: "resp-1",
+        object: "response",
+        created_at: 1,
+        status: "completed",
+        model: String(request.model),
+        output: [
+          {
+            type: "message",
+            id: "msg-1",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: "response-text" }],
+          },
+        ],
+        usage: {
+          input_tokens: 2,
+          output_tokens: 1,
+          total_tokens: 3,
+        },
+      },
+    })),
     listModels: vi.fn(async () => ({
       object: "list",
       data: [
@@ -77,7 +101,7 @@ async function createHarness(): Promise<Harness> {
   const mcpServer = createDeepSeekMcpServer({
     client: api as unknown as DeepSeekApiClient,
     conversations: new ConversationStore(200),
-    defaultModel: "deepseek-v4-flash",
+    defaultModel,
     version: "test",
   });
 
@@ -115,6 +139,7 @@ describe("createDeepSeekMcpServer", () => {
       expect(names).toEqual([
         "chat_completion",
         "completion",
+        "create_response",
         "get_user_balance",
         "list_conversations",
         "list_models",
@@ -210,6 +235,7 @@ describe("createDeepSeekMcpServer", () => {
           model: "deepseek-v4-pro",
           thinking: { type: "enabled" },
           reasoning_effort: "max",
+          user_id: "tenant_123",
           max_tokens: 64,
         },
       });
@@ -220,6 +246,7 @@ describe("createDeepSeekMcpServer", () => {
         model: "deepseek-v4-pro",
         thinking: { type: "enabled" },
         reasoning_effort: "max",
+        user_id: "tenant_123",
         max_tokens: 64,
       });
 
@@ -243,6 +270,115 @@ describe("createDeepSeekMcpServer", () => {
         suffix: "return value",
         max_tokens: 64,
         top_p: 0.7,
+      });
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("forwards Responses API inputs and keeps the raw payload opt-in", async () => {
+    const harness = await createHarness();
+
+    try {
+      const result = await harness.client.callTool({
+        name: "create_response",
+        arguments: {
+          model: "deepseek-v4-pro",
+          input: "hello",
+          instructions: "Be concise",
+          reasoning: { effort: "low" },
+          max_output_tokens: 64,
+          stream: true,
+        },
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(harness.api.createResponse).toHaveBeenCalledTimes(1);
+      expect(harness.api.createResponse.mock.calls[0]?.[0]).toMatchObject({
+        model: "deepseek-v4-pro",
+        input: "hello",
+        instructions: "Be concise",
+        reasoning: { effort: "low" },
+        max_output_tokens: 64,
+        stream: true,
+      });
+      expect(result.content?.[0]).toMatchObject({ type: "text", text: "response-text" });
+      expect(result.structuredContent).toMatchObject({
+        model: "deepseek-v4-pro",
+        status: "completed",
+        output_text: "response-text",
+      });
+      expect((result.structuredContent as Record<string, unknown>)?.raw_response).toBeUndefined();
+
+      const withRaw = await harness.client.callTool({
+        name: "create_response",
+        arguments: {
+          input: "hello",
+          include_raw_response: true,
+        },
+      });
+      expect((withRaw.structuredContent as Record<string, unknown>)?.raw_response).toBeDefined();
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("uses the configured default model for Responses API calls", async () => {
+    const harness = await createHarness("deepseek-v4-pro");
+
+    try {
+      const result = await harness.client.callTool({
+        name: "create_response",
+        arguments: { input: "hello" },
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(harness.api.createResponse.mock.calls[0]?.[0]).toMatchObject({
+        model: "deepseek-v4-pro",
+      });
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it.each([
+    ["server_error", true],
+    ["invalid_request_error", false],
+  ])("marks failed Responses API results as MCP errors for %s", async (errorCode, retryable) => {
+    const harness = await createHarness();
+    harness.api.createResponse.mockResolvedValueOnce({
+      response: {
+        id: "resp-failed",
+        object: "response",
+        created_at: 2,
+        status: "failed",
+        model: "deepseek-v4-flash",
+        output: [],
+        error: {
+          code: errorCode,
+          message: "provider failed",
+        },
+      },
+    });
+
+    try {
+      const result = await harness.client.callTool({
+        name: "create_response",
+        arguments: { input: "hello" },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("provider failed"),
+      });
+      expect(result.structuredContent).toMatchObject({
+        status: "failed",
+        retryable,
+        error: {
+          code: errorCode,
+          message: "provider failed",
+        },
       });
     } finally {
       await harness.serverClose();

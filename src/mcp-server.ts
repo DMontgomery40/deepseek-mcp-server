@@ -6,15 +6,19 @@ import { DeepSeekApiClient, DeepSeekApiError } from "./deepseek/client.js";
 import {
   ChatCompletionToolInput,
   CompletionToolInput,
+  ResponseToolInput,
   chatCompletionToolInputSchema,
   completionToolInputSchema,
   emptyToolInputSchema,
   resetConversationToolInputSchema,
+  responseToolInputSchema,
 } from "./deepseek/schemas.js";
 import {
   DeepSeekChatCompletionRequest,
   DeepSeekChatMessage,
   DeepSeekCompletionRequest,
+  DeepSeekResponseOutputItem,
+  DeepSeekResponseRequest,
 } from "./deepseek/types.js";
 
 export interface DeepSeekMcpServerOptions {
@@ -30,6 +34,12 @@ const ENDPOINT_MATRIX = [
     method: "POST",
     tool: "chat_completion",
     description: "V4 Chat Completions API with thinking mode, tool calls, JSON output, streaming and non-streaming",
+  },
+  {
+    endpoint: "/responses",
+    method: "POST",
+    tool: "create_response",
+    description: "Native V4 Responses API with text, reasoning, function tools, web search, and streaming",
   },
   {
     endpoint: "/beta/completions",
@@ -51,8 +61,20 @@ const ENDPOINT_MATRIX = [
   },
 ] as const;
 
-const SERVER_VERSION = "0.5.0";
+const SERVER_VERSION = "0.6.0";
 const RETRYABLE_DEEPSEEK_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
+const RETRYABLE_RESPONSE_ERROR_CODES = new Set([
+  "rate_limit_exceeded",
+  "server_error",
+  "service_unavailable",
+  "timeout",
+  "overloaded_error",
+]);
+const NON_RETRYABLE_RESPONSE_ERROR_CODES = new Set([
+  "authentication_error",
+  "invalid_request_error",
+  "permission_error",
+]);
 
 export function createDeepSeekMcpServer(options: DeepSeekMcpServerOptions): McpServer {
   const server = new McpServer({
@@ -219,7 +241,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
     "chat_completion",
     {
       description:
-        "Primary DeepSeek V4 chat tool for single-turn and multi-turn generation. Defaults to `deepseek-v4-flash`; use `deepseek-v4-pro` for higher-capability reasoning. Provide either `message` (simple single user turn) or `messages` (full chat history); if both are provided, `messages` is used. Thinking mode is enabled by DeepSeek by default; pass `thinking:{type:\"disabled\"}` for non-thinking mode, and use `reasoning_effort:\"high\"|\"max\"` when thinking is enabled. Use `conversation_id` to persist context across calls and `clear_conversation=true` to reset stored state before sending the next turn. Set `include_raw_response=true` only for debugging because it returns the full provider payload.",
+        "Primary DeepSeek V4 chat tool for single-turn and multi-turn generation. Defaults to `deepseek-v4-flash`; use `deepseek-v4-pro` for higher-capability reasoning. Provide either `message` (simple single user turn) or `messages` (full chat history); if both are provided, `messages` is used. Thinking mode is enabled by DeepSeek by default; pass `thinking:{type:\"disabled\"}` for non-thinking mode, and use `reasoning_effort:\"low\"|\"high\"|\"max\"` when thinking is enabled. Use `conversation_id` to persist context across calls and `clear_conversation=true` to reset stored state before sending the next turn. Set `include_raw_response=true` only for debugging because it returns the full provider payload.",
       inputSchema: chatCompletionToolInputSchema,
     },
     async (input) => {
@@ -325,6 +347,76 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
               text: choice?.text || "(no completion text returned)",
             },
           ],
+          structuredContent,
+        };
+      } catch (error) {
+        return makeToolErrorResult(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    "create_response",
+    {
+      description:
+        "Create a stateless DeepSeek V4 response using the native OpenAI-compatible Responses API. Defaults to `deepseek-v4-flash`. Provide `input`, `instructions`, or both. Use `reasoning.effort` for thinking control, `tools` for function or server-side web-search tools, and `stream=true` for semantic SSE aggregation. This tool does not persist provider-side response state; send the full input history for multi-turn work. Set `include_raw_response=true` only for debugging because it returns the full provider payload.",
+      inputSchema: responseToolInputSchema,
+    },
+    async (input) => {
+      try {
+        const normalizedInput = input as ResponseToolInput;
+        const request = buildResponseRequest(normalizedInput, options.defaultModel);
+        const result = await options.client.createResponse(request);
+        const outputText = collectResponseContent(result.response.output, "output_text");
+        const reasoningText = collectResponseContent(result.response.output, "reasoning_text");
+        const functionCalls = result.response.output.filter((item) => item.type === "function_call");
+        const responseFailed = result.response.status === "failed";
+        const responseErrorMessage =
+          result.response.error && typeof result.response.error.message === "string"
+            ? result.response.error.message
+            : "DeepSeek returned a failed response";
+        const responseRetryable = getResponseErrorRetryability(result.response.error);
+
+        const summary = [
+          responseFailed
+            ? `DeepSeek Responses API failed: ${responseErrorMessage}`
+            : outputText || "(no response text returned)",
+          reasoningText ? `\nReasoning:\n${reasoningText}` : undefined,
+          functionCalls.length > 0
+            ? `\nFunction calls returned by model: ${JSON.stringify(functionCalls, null, 2)}`
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const structuredContent: Record<string, unknown> = {
+          model: result.response.model,
+          status: result.response.status,
+          output_text: outputText,
+          reasoning_text: reasoningText || null,
+          function_calls: functionCalls,
+          usage: result.response.usage ?? null,
+          error: result.response.error ?? null,
+          incomplete_details: result.response.incomplete_details ?? null,
+          stream_event_count: result.streamEventCount ?? null,
+        };
+
+        if (normalizedInput.include_raw_response) {
+          structuredContent.raw_response = result.response;
+        }
+
+        if (responseFailed) {
+          if (responseRetryable !== undefined) {
+            structuredContent.retryable = responseRetryable;
+          }
+          structuredContent.suggestion = responseRetryable
+            ? "Transient provider failure; retry with backoff."
+            : "Review the provider error and request fields before retrying.";
+        }
+
+        return {
+          ...(responseFailed ? { isError: true as const } : {}),
+          content: [{ type: "text", text: summary }],
           structuredContent,
         };
       } catch (error) {
@@ -484,6 +576,7 @@ function buildChatCompletionRequest(
     "top_logprobs",
     "thinking",
     "reasoning_effort",
+    "user_id",
   ];
   const requestRecord = request as Record<string, unknown>;
 
@@ -536,6 +629,52 @@ function buildCompletionRequest(
   }
 
   return request;
+}
+
+function buildResponseRequest(input: ResponseToolInput, defaultModel: string): DeepSeekResponseRequest {
+  const request: DeepSeekResponseRequest = {
+    model: input.model ?? defaultModel,
+  };
+
+  const optionalFields: (keyof ResponseToolInput)[] = [
+    "input",
+    "instructions",
+    "reasoning",
+    "max_output_tokens",
+    "stream",
+    "temperature",
+    "top_p",
+    "text",
+    "tools",
+    "tool_choice",
+    "top_logprobs",
+    "user",
+  ];
+  const requestRecord = request as Record<string, unknown>;
+
+  for (const field of optionalFields) {
+    const value = input[field];
+    if (value !== undefined) {
+      requestRecord[field] = value;
+    }
+  }
+
+  if (input.extra_body) {
+    Object.assign(request, input.extra_body);
+  }
+
+  return request;
+}
+
+function collectResponseContent(
+  output: DeepSeekResponseOutputItem[],
+  contentType: "output_text" | "reasoning_text",
+): string {
+  return output
+    .flatMap((item) => item.content ?? [])
+    .filter((content) => content.type === contentType && typeof content.text === "string")
+    .map((content) => content.text)
+    .join("");
 }
 
 function makeToolErrorResult(error: unknown): {
@@ -593,6 +732,23 @@ function isRetryableDeepSeekError(status: number | undefined): boolean {
   }
 
   return RETRYABLE_DEEPSEEK_STATUS_CODES.has(status);
+}
+
+function getResponseErrorRetryability(error: Record<string, unknown> | null | undefined): boolean | undefined {
+  const code = typeof error?.code === "string" ? error.code : undefined;
+  if (!code) {
+    return undefined;
+  }
+
+  if (RETRYABLE_RESPONSE_ERROR_CODES.has(code)) {
+    return true;
+  }
+
+  if (NON_RETRYABLE_RESPONSE_ERROR_CODES.has(code)) {
+    return false;
+  }
+
+  return undefined;
 }
 
 function getDeepSeekErrorSuggestion(status: number | undefined): string {

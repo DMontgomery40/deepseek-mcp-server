@@ -123,6 +123,33 @@ await runEndpoint("POST /chat/completions thinking stream", async () => {
   };
 });
 
+await runEndpoint("POST /responses", async () => {
+  const result = await client.createResponse({
+    model: "deepseek-v4-flash",
+    input: "Reply exactly with LIVE_RESPONSE_OK",
+    reasoning: { effort: "low" },
+    max_output_tokens: 64,
+  });
+
+  const text = result.response.output
+    .flatMap((item) => item.content ?? [])
+    .filter((content) => content.type === "output_text")
+    .map((content) => content.text ?? "")
+    .join("");
+
+  assert(result.response.object === "response", "Responses API object shape mismatch");
+  assert(result.response.status === "completed", `Responses API status was ${result.response.status}`);
+  assert(text.includes("LIVE_RESPONSE_OK"), `Responses API text missing marker: ${text}`);
+
+  return {
+    id: result.response.id,
+    model: result.response.model,
+    status: result.response.status,
+    text,
+    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
+  };
+});
+
 await runEndpoint("POST /beta/completions FIM", async () => {
   const result = await client.createCompletion({
     model: "deepseek-v4-pro",
@@ -196,6 +223,12 @@ await runTool("completion", {
   suffix: '";',
   model: "deepseek-v4-pro",
   max_tokens: 16,
+});
+await runTool("create_response", {
+  input: "Reply exactly with MCP_RESPONSE_OK",
+  model: "deepseek-v4-flash",
+  reasoning: { effort: "low" },
+  max_output_tokens: 64,
 });
 
 const summary = {

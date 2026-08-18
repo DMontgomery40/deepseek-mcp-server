@@ -6,9 +6,12 @@ import {
   DeepSeekCompletionRequest,
   DeepSeekCompletionResponse,
   DeepSeekListModelsResponse,
+  DeepSeekResponse,
+  DeepSeekResponseRequest,
   DeepSeekToolCall,
   DeepSeekUsage,
   DeepSeekUserBalanceResponse,
+  ResponseExecutionResult,
 } from "./types.js";
 
 export interface DeepSeekApiClientOptions {
@@ -21,7 +24,7 @@ export interface DeepSeekApiClientOptions {
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_TIMEOUT_MS = 120000;
-const DEFAULT_USER_AGENT = "deepseek-mcp-server/0.5.0";
+const DEFAULT_USER_AGENT = "deepseek-mcp-server/0.6.0";
 export class DeepSeekApiError extends Error {
   public readonly status?: number;
   public readonly payload?: unknown;
@@ -119,6 +122,44 @@ export class DeepSeekApiClient {
     const response = await this.requestJson<DeepSeekCompletionResponse>({
       method: "POST",
       path: "/beta/completions",
+      body: request as Record<string, unknown>,
+      stream: false,
+    });
+
+    return { response };
+  }
+
+  async createResponse(request: DeepSeekResponseRequest): Promise<ResponseExecutionResult> {
+    if (request.stream) {
+      const events = await this.requestSseJson<unknown>({
+        method: "POST",
+        path: "/responses",
+        body: request as Record<string, unknown>,
+        stream: true,
+      });
+
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (
+          isObject(event) &&
+          ["response.completed", "response.incomplete", "response.failed"].includes(String(event.type)) &&
+          isObject(event.response)
+        ) {
+          return {
+            response: event.response as unknown as DeepSeekResponse,
+            streamEventCount: events.length,
+          };
+        }
+      }
+
+      throw new DeepSeekApiError("DeepSeek Responses API stream ended without a final response event", {
+        payload: events,
+      });
+    }
+
+    const response = await this.requestJson<DeepSeekResponse>({
+      method: "POST",
+      path: "/responses",
       body: request as Record<string, unknown>,
       stream: false,
     });

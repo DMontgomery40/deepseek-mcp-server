@@ -71,7 +71,8 @@ export interface DeepSeekChatCompletionRequest {
   thinking?: {
     type?: "enabled" | "disabled";
   };
-  reasoning_effort?: "high" | "max";
+  reasoning_effort?: "low" | "high" | "max";
+  user_id?: string;
   [key: string]: unknown;
 }
 
@@ -145,6 +146,57 @@ export interface DeepSeekCompletionResponse {
   [key: string]: unknown;
 }
 
+export interface DeepSeekResponseRequest {
+  model: DeepSeekModelId;
+  input?: string | Array<Record<string, unknown>>;
+  instructions?: string;
+  reasoning?: {
+    effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  };
+  max_output_tokens?: number;
+  stream?: boolean;
+  temperature?: number;
+  top_p?: number;
+  text?: Record<string, unknown>;
+  tools?: Array<Record<string, unknown>>;
+  tool_choice?: string | Record<string, unknown>;
+  top_logprobs?: number;
+  user?: string;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekResponseOutputContent {
+  type: "output_text" | "reasoning_text" | string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekResponseOutputItem {
+  type: "message" | "reasoning" | "function_call" | "web_search_call" | string;
+  id?: string;
+  status?: "in_progress" | "completed" | "incomplete" | string;
+  role?: "assistant";
+  content?: DeepSeekResponseOutputContent[];
+  call_id?: string;
+  name?: string;
+  arguments?: string;
+  action?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekResponse {
+  id: string;
+  object: "response" | string;
+  created_at: number;
+  status: "in_progress" | "completed" | "incomplete" | "failed" | string;
+  model: string;
+  output: DeepSeekResponseOutputItem[];
+  usage?: Record<string, unknown>;
+  error?: Record<string, unknown> | null;
+  incomplete_details?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
 export interface DeepSeekModel {
   id: string;
   object: string;
@@ -178,4 +230,9 @@ export interface ChatCompletionExecutionResult {
 export interface CompletionExecutionResult {
   response: DeepSeekCompletionResponse;
   streamChunkCount?: number;
+}
+
+export interface ResponseExecutionResult {
+  response: DeepSeekResponse;
+  streamEventCount?: number;
 }

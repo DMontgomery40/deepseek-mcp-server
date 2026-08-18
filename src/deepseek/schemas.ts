@@ -56,6 +56,112 @@ const thinkingSchema = z
   })
   .strict();
 
+const responseMessageContentPartSchema = z.union([
+  z
+    .object({
+      type: z.literal("input_text"),
+      text: z.string().min(1),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("output_text"),
+      text: z.string().min(1),
+    })
+    .passthrough(),
+]);
+
+const responseReasoningContentPartSchema = z
+  .object({
+    type: z.literal("reasoning_text"),
+    text: z.string().min(1),
+  })
+  .passthrough();
+
+const responseInputItemSchema = z.union([
+  z
+    .object({
+      type: z.literal("message").optional(),
+      role: z.enum(["user", "assistant", "system", "developer"]),
+      content: z.union([z.string(), z.array(responseMessageContentPartSchema).min(1)]),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("function_call"),
+      call_id: z.string().min(1),
+      name: z.string().min(1),
+      arguments: z.string(),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("function_call_output"),
+      call_id: z.string().min(1),
+      output: z.string(),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("reasoning"),
+      content: z.array(responseReasoningContentPartSchema).min(1),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal("web_search_call"),
+    })
+    .passthrough(),
+]);
+
+const responseToolSchema = z.union([
+  z
+    .object({
+      type: z.literal("function"),
+      name: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/),
+      description: z.string().optional(),
+      parameters: z.record(z.string(), z.unknown()).optional(),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.enum(["web_search", "web_search_2025_08_26"]),
+    })
+    .passthrough(),
+]);
+
+const responseToolChoiceSchema = z.union([
+  z.enum(["none", "auto", "required"]),
+  z
+    .object({
+      type: z.literal("function"),
+      name: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.enum(["web_search", "web_search_2025_08_26"]),
+    })
+    .passthrough(),
+]);
+
+const responseTextFormatSchema = z
+  .object({
+    format: z
+      .union([
+        z.object({ type: z.literal("text") }).passthrough(),
+        z.object({ type: z.literal("json_object") }).passthrough(),
+        z
+          .object({
+            type: z.literal("json_schema"),
+            name: z.string().min(1),
+            schema: z.record(z.string(), z.unknown()),
+          })
+          .passthrough(),
+      ]),
+  })
+  .passthrough();
+
 export const emptyToolInputSchema = z.object({});
 
 export const chatCompletionToolInputSchema = z
@@ -84,7 +190,8 @@ export const chatCompletionToolInputSchema = z
     logprobs: z.boolean().optional(),
     top_logprobs: z.number().int().min(0).max(20).optional(),
     thinking: thinkingSchema.optional(),
-    reasoning_effort: z.enum(["high", "max"]).optional(),
+    reasoning_effort: z.enum(["low", "high", "max"]).optional(),
+    user_id: z.string().min(1).max(512).regex(/^[a-zA-Z0-9_-]+$/).optional(),
     include_raw_response: z.boolean().default(false),
     extra_body: z.record(z.string(), z.unknown()).optional(),
   })
@@ -121,10 +228,43 @@ export const completionToolInputSchema = z.object({
   extra_body: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const responseToolInputSchema = z
+  .object({
+    model: z.string().optional(),
+    input: z.union([z.string().min(1), z.array(responseInputItemSchema).min(1)]).optional(),
+    instructions: z.string().min(1).optional(),
+    reasoning: z
+      .object({
+        effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
+      })
+      .strict()
+      .optional(),
+    max_output_tokens: z.number().int().positive().optional(),
+    stream: z.boolean().default(false),
+    temperature: z.number().min(0).max(2).optional(),
+    top_p: z.number().min(0).max(1).optional(),
+    text: responseTextFormatSchema.optional(),
+    tools: z.array(responseToolSchema).optional(),
+    tool_choice: responseToolChoiceSchema.optional(),
+    top_logprobs: z.number().int().min(0).max(20).optional(),
+    user: z.string().min(1).max(512).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+    include_raw_response: z.boolean().default(false),
+    extra_body: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.input === undefined && value.instructions === undefined) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one of `input` or `instructions` must be provided",
+      });
+    }
+  });
+
 export const resetConversationToolInputSchema = z.object({
   conversation_id: z.string().min(1),
 });
 
 export type ChatCompletionToolInput = z.infer<typeof chatCompletionToolInputSchema>;
 export type CompletionToolInput = z.infer<typeof completionToolInputSchema>;
+export type ResponseToolInput = z.infer<typeof responseToolInputSchema>;
 export type ResetConversationToolInput = z.infer<typeof resetConversationToolInputSchema>;

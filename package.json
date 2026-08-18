@@ -1,8 +1,8 @@
 {
   "name": "deepseek-mcp-server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "mcpName": "io.github.DMontgomery40/deepseek",
-  "description": "Model Context Protocol server for DeepSeek V4 API endpoints with stdio and Streamable HTTP transports.",
+  "description": "Model Context Protocol server for DeepSeek V4 Chat, Responses, FIM, models, and balance APIs.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
@@ -25,17 +25,17 @@
     "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "dotenv": "^17.4.2",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.9.5",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.10"
   },
   "author": "DMontgomery40",
   "license": "MIT",
