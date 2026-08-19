@@ -22,13 +22,15 @@ async function main(): Promise<void> {
 
   const conversations = new ConversationStore(config.conversationMaxMessages);
 
-  const mcpServer = createDeepSeekMcpServer({
-    client,
-    conversations,
-    defaultModel: config.defaultModel,
-  });
+  const createMcpServer = () =>
+    createDeepSeekMcpServer({
+      client,
+      conversations,
+      defaultModel: config.defaultModel,
+    });
 
   if (config.transport === "stdio") {
+    const mcpServer = createMcpServer();
     const transport = new StdioServerTransport();
     await mcpServer.connect(transport);
 
@@ -41,11 +43,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  const httpRuntime = await startStreamableHttpServer(mcpServer, {
+  const httpRuntime = await startStreamableHttpServer(createMcpServer, {
     host: config.httpHost,
     port: config.httpPort,
     path: config.httpPath,
     statefulSession: config.httpStatefulSession,
+    allowedOrigins: config.httpAllowedOrigins,
   });
 
   console.error(
@@ -54,7 +57,6 @@ async function main(): Promise<void> {
 
   installShutdownHandlers(async () => {
     await httpRuntime.close();
-    await mcpServer.close();
   });
 }
 

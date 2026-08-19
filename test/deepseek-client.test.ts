@@ -231,6 +231,119 @@ describe("DeepSeekApiClient", () => {
     expect(body.best_of).toBeUndefined();
   });
 
+  it("sends a non-stream Responses API payload to /responses", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        id: "resp-1",
+        object: "response",
+        created_at: 30,
+        status: "completed",
+        model: "deepseek-v4-flash",
+        output: [
+          {
+            type: "message",
+            id: "msg-1",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: "response text", annotations: [] }],
+          },
+        ],
+        usage: {
+          input_tokens: 5,
+          output_tokens: 3,
+          total_tokens: 8,
+        },
+      }),
+    );
+
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+    });
+
+    const result = await client.createResponse({
+      model: "deepseek-v4-flash",
+      input: "hello",
+      instructions: "Be concise",
+      reasoning: { effort: "low" },
+      max_output_tokens: 64,
+    });
+
+    expect(result.response.status).toBe("completed");
+    expect(result.response.output[0]?.content?.[0]?.text).toBe("response text");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.deepseek.com/responses");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: "deepseek-v4-flash",
+      input: "hello",
+      instructions: "Be concise",
+      reasoning: { effort: "low" },
+      max_output_tokens: 64,
+    });
+  });
+
+  it("returns the final response object from a streaming Responses API call", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      sseResponse([
+        {
+          type: "response.created",
+          sequence_number: 0,
+          response: {
+            id: "resp-stream-1",
+            object: "response",
+            created_at: 40,
+            status: "in_progress",
+            model: "deepseek-v4-pro",
+            output: [],
+          },
+        },
+        {
+          type: "response.output_text.delta",
+          sequence_number: 1,
+          delta: "streamed",
+        },
+        {
+          type: "response.completed",
+          sequence_number: 2,
+          response: {
+            id: "resp-stream-1",
+            object: "response",
+            created_at: 40,
+            status: "completed",
+            model: "deepseek-v4-pro",
+            output: [
+              {
+                type: "message",
+                id: "msg-stream-1",
+                status: "completed",
+                role: "assistant",
+                content: [{ type: "output_text", text: "streamed" }],
+              },
+            ],
+          },
+        },
+      ]),
+    );
+
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+    });
+
+    const result = await client.createResponse({
+      model: "deepseek-v4-pro",
+      input: "hello",
+      stream: true,
+    });
+
+    expect(result.streamEventCount).toBe(3);
+    expect(result.response.status).toBe("completed");
+    expect(result.response.output[0]?.content?.[0]?.text).toBe("streamed");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.deepseek.com/responses");
+  });
+
   it("supports streaming FIM completion aggregation", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       sseResponse([

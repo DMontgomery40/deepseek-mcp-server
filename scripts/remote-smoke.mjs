@@ -30,6 +30,7 @@ const client = new Client({
 const requiredTools = [
   "chat_completion",
   "completion",
+  "create_response",
   "list_models",
   "get_user_balance",
   "reset_conversation",

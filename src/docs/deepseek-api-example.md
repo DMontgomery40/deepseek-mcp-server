@@ -38,6 +38,28 @@ Thinking request:
 
 Thinking responses can include `message.reasoning_content` beside `message.content`.
 
+Supported reasoning effort levels are `low`, `high`, and `max`.
+
+## Responses API
+
+Endpoint:
+
+```http
+POST https://api.deepseek.com/responses
+```
+
+Minimal request:
+
+```json
+{
+  "model": "deepseek-v4-flash",
+  "input": "Reply with hello",
+  "reasoning": { "effort": "low" }
+}
+```
+
+The endpoint is stateless. Send the full input history for multi-turn work. Streaming uses semantic events and ends with `response.completed`, `response.incomplete`, or `response.failed`.
+
 ## FIM Completion
 
 Endpoint:
@@ -60,6 +82,7 @@ Minimal request:
 ## Supported MCP Tools
 
 - `chat_completion`
+- `create_response`
 - `completion`
 - `list_models`
 - `get_user_balance`

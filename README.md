@@ -14,9 +14,10 @@
 
 Model Context Protocol server for the current DeepSeek V4 API.
 
-As of April 24, 2026, DeepSeek's public API reference documents:
+As of August 18, 2026, DeepSeek's public API reference documents:
 
 - `POST /chat/completions` with `deepseek-v4-flash` and `deepseek-v4-pro`
+- `POST /responses` with native OpenAI Responses API request and response shapes
 - `POST /beta/completions` for V4 Pro FIM completion
 - `GET /models`
 - `GET /user/balance`
@@ -25,7 +26,8 @@ This server exposes only those documented API surfaces. It does not ship a V4 mo
 
 ## Tools
 
-- `chat_completion`: DeepSeek V4 chat. Defaults to `deepseek-v4-flash`. Supports `thinking: { "type": "enabled" | "disabled" }`, `reasoning_effort: "high" | "max"`, JSON output, function tools, logprobs, streaming, and conversation memory.
+- `chat_completion`: DeepSeek V4 chat. Defaults to `deepseek-v4-flash`. Supports `thinking: { "type": "enabled" | "disabled" }`, `reasoning_effort: "low" | "high" | "max"`, JSON output, function tools, logprobs, streaming, and conversation memory.
+- `create_response`: Stateless native Responses API calls with text or structured input, reasoning effort controls, function tools, server-side web search, structured output, and semantic streaming.
 - `completion`: DeepSeek V4 Pro FIM completion. Defaults to `deepseek-v4-pro`.
 - `list_models`: Reads the live DeepSeek model list.
 - `get_user_balance`: Reads account balance and availability.
@@ -89,8 +91,11 @@ MCP_HTTP_HOST=127.0.0.1
 MCP_HTTP_PORT=3001
 MCP_HTTP_PATH=/mcp
 MCP_HTTP_STATEFUL_SESSION=false
+MCP_HTTP_ALLOWED_ORIGINS=https://app.example.com,http://localhost:3000
 CONVERSATION_MAX_MESSAGES=200
 ```
+
+`MCP_HTTP_ALLOWED_ORIGINS` is only needed for browser-based clients. Streamable HTTP requests that send an `Origin` header are rejected with `403` unless the exact origin appears in this comma-separated allowlist; normal MCP clients that omit `Origin` are unaffected.
 
 ## Verification
 
@@ -101,7 +106,11 @@ DEEPSEEK_API_KEY="REPLACE_WITH_DEEPSEEK_KEY" npm run test:live
 DEEPSEEK_MCP_AUTH_TOKEN="REPLACE_WITH_TOKEN" npm run test:remote
 ```
 
-The live smoke test performs real DeepSeek requests for model listing, balance, non-thinking chat, thinking streaming chat with `reasoning_content`, FIM completion, and MCP tool calls.
+The live smoke test performs real DeepSeek requests for model listing, balance, non-thinking chat, thinking streaming chat with `reasoning_content`, a native Responses API call, FIM completion, and MCP tool calls.
+
+## Protocol Compatibility
+
+This release uses the supported `@modelcontextprotocol/sdk` v1 line and the 2025-era MCP initialization flow. Migrating to the split v2 packages and the 2026-07-28 protocol era is intentionally outside this maintenance update because it changes lifecycle and packaging contracts rather than being a drop-in dependency bump.
 
 ## Registry Identity
 
@@ -112,10 +121,12 @@ The live smoke test performs real DeepSeek requests for model listing, balance, 
 ## Official References
 
 - DeepSeek chat completions: <https://api-docs.deepseek.com/api/create-chat-completion>
+- DeepSeek Responses API: <https://api-docs.deepseek.com/api/create-response>
 - DeepSeek FIM completions: <https://api-docs.deepseek.com/api/create-completion>
 - DeepSeek models: <https://api-docs.deepseek.com/api/list-models>
 - DeepSeek balance: <https://api-docs.deepseek.com/api/get-user-balance>
-- MCP specification: <https://modelcontextprotocol.io/specification/2025-11-25>
+- MCP specification: <https://modelcontextprotocol.io/specification/2026-07-28>
+- MCP TypeScript SDK v2 migration guide: <https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration/upgrade-to-v2.md>
 
 ## License
 

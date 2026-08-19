@@ -5,7 +5,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 export interface StreamableHttpRuntime {
-  transport: StreamableHTTPServerTransport;
   server: Server;
   close: () => Promise<void>;
 }
@@ -15,21 +14,42 @@ export interface StreamableHttpOptions {
   port: number;
   path: string;
   statefulSession: boolean;
+  allowedOrigins?: string[];
 }
 
 export async function startStreamableHttpServer(
-  mcpServer: McpServer,
+  createMcpServer: () => McpServer,
   options: StreamableHttpOptions,
 ): Promise<StreamableHttpRuntime> {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: options.statefulSession ? () => randomUUID() : undefined,
-  });
+  const activeConnections = new Set<McpConnection>();
+  const statefulConnection = options.statefulSession
+    ? await createMcpConnection(createMcpServer, true)
+    : undefined;
 
-  await mcpServer.connect(transport);
+  if (statefulConnection) {
+    activeConnections.add(statefulConnection);
+  }
 
   const server = createServer(async (req, res) => {
+    let requestConnection: McpConnection | undefined;
+
     try {
-      await handleIncomingRequest(req, res, options.path, transport);
+      if (!statefulConnection && shouldHandleWithMcpTransport(req, options.path)) {
+        requestConnection = await createMcpConnection(createMcpServer, false);
+        activeConnections.add(requestConnection);
+        res.once("close", () => {
+          void closeMcpConnection(requestConnection, activeConnections);
+        });
+      }
+
+      await handleIncomingRequest(
+        req,
+        res,
+        options.path,
+        statefulConnection?.transport ?? requestConnection?.transport,
+        options.statefulSession,
+        options.allowedOrigins ?? [],
+      );
     } catch (error) {
       if (!res.headersSent) {
         res.statusCode = 500;
@@ -49,20 +69,60 @@ export async function startStreamableHttpServer(
   });
 
   return {
-    transport,
     server,
     close: async () => {
-      await transport.close();
+      await Promise.all(
+        [...activeConnections].map((connection) => closeMcpConnection(connection, activeConnections)),
+      );
       await closeServer(server);
     },
   };
+}
+
+interface McpConnection {
+  mcpServer: McpServer;
+  transport: StreamableHTTPServerTransport;
+}
+
+async function createMcpConnection(
+  createMcpServer: () => McpServer,
+  statefulSession: boolean,
+): Promise<McpConnection> {
+  const mcpServer = createMcpServer();
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: statefulSession ? () => randomUUID() : undefined,
+  });
+  await mcpServer.connect(transport);
+  return { mcpServer, transport };
+}
+
+async function closeMcpConnection(
+  connection: McpConnection | undefined,
+  activeConnections: Set<McpConnection>,
+): Promise<void> {
+  if (!connection || !activeConnections.delete(connection)) {
+    return;
+  }
+
+  await connection.transport.close();
+  await connection.mcpServer.close();
+}
+
+function shouldHandleWithMcpTransport(
+  req: IncomingMessage,
+  expectedPath: string,
+): boolean {
+  const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  return requestUrl.pathname === expectedPath && req.method === "POST";
 }
 
 async function handleIncomingRequest(
   req: IncomingMessage,
   res: ServerResponse,
   expectedPath: string,
-  transport: StreamableHTTPServerTransport,
+  transport: StreamableHTTPServerTransport | undefined,
+  statefulSession: boolean,
+  allowedOrigins: string[],
 ): Promise<void> {
   const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   if (requestUrl.pathname !== expectedPath) {
@@ -72,15 +132,40 @@ async function handleIncomingRequest(
     return;
   }
 
-  // Basic CORS support for browser-based MCP clients.
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id, Last-Event-ID");
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+  if (origin && !allowedOrigins.includes(origin)) {
+    res.statusCode = 403;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ error: `Origin not allowed: ${origin}` }));
+    return;
+  }
+
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID",
+  );
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id, Mcp-Protocol-Version");
 
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     res.end();
     return;
+  }
+
+  if (!statefulSession && req.method !== "POST") {
+    res.statusCode = 405;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ error: `Method not allowed: ${req.method ?? "UNKNOWN"}` }));
+    return;
+  }
+
+  if (!transport) {
+    throw new Error("MCP transport was not initialized for this request");
   }
 
   const parsedBody = await parseJsonBody(req);
