@@ -18,6 +18,11 @@ import {
   DeepSeekUserBalanceResponse,
   ResponseExecutionResult,
 } from "./types.js";
+import {
+  MAX_DEEPSEEK_FILE_BASE64_CHARS,
+  MAX_DEEPSEEK_FILE_BYTES,
+  inspectCanonicalBase64,
+} from "./image-data.js";
 
 export interface DeepSeekApiClientOptions {
   apiKey: string;
@@ -378,6 +383,18 @@ export class DeepSeekApiClient {
 function decodeImageData(fileData: string): { bytes: Uint8Array<ArrayBuffer>; mediaType: string } {
   const dataUrlMatch = /^data:(image\/(?:jpeg|png|gif|webp));base64,([a-zA-Z0-9+/]+={0,2})$/.exec(fileData);
   const payload = dataUrlMatch?.[2] ?? fileData;
+  if (payload.length > MAX_DEEPSEEK_FILE_BASE64_CHARS) {
+    throw new DeepSeekApiError("Image exceeds DeepSeek's 64 MiB Files API limit");
+  }
+
+  const inspection = inspectCanonicalBase64(payload);
+  if (!inspection) {
+    throw new DeepSeekApiError("Invalid base64 image data");
+  }
+  if (inspection.decodedBytes > MAX_DEEPSEEK_FILE_BYTES) {
+    throw new DeepSeekApiError("Image exceeds DeepSeek's 64 MiB Files API limit");
+  }
+
   const decoded = Buffer.from(payload, "base64");
   const detectedMediaType = detectImageMediaType(decoded);
 
@@ -391,8 +408,11 @@ function decodeImageData(fileData: string): { bytes: Uint8Array<ArrayBuffer>; me
     );
   }
 
-  const bytes = new Uint8Array(decoded.byteLength);
-  bytes.set(decoded);
+  const bytes = new Uint8Array(
+    decoded.buffer as ArrayBuffer,
+    decoded.byteOffset,
+    decoded.byteLength,
+  );
 
   return { bytes, mediaType: detectedMediaType };
 }

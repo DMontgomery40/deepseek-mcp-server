@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "test": "vitest run --config ./vitest.config.ts",
+    "test": "npm run build && vitest run --config ./vitest.config.ts",
     "test:watch": "vitest --config ./vitest.config.ts",
     "test:live": "npm run build && node scripts/live-smoke.mjs",
     "test:remote": "npm run build && node scripts/remote-smoke.mjs",

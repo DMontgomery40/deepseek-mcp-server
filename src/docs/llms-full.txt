@@ -63,8 +63,9 @@ get_user_balance
 
 upload_file
   Uploads raw base64 or a JPEG, PNG, GIF, or WebP data URL to /files with
-  purpose=user_data. Returns a reusable file-api-* ID. Local paths are rejected.
-  Optional expires_after_seconds range: 3600 to 2592000.
+  purpose=user_data. Decoded uploads are limited to 64 MiB. Returns a reusable
+  file-api-* ID. Local paths are rejected. Optional expires_after_seconds range:
+  3600 to 2592000.
 
 list_files
   Lists Files API metadata. Optional after, limit, order, and purpose filters.

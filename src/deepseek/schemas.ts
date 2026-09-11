@@ -1,9 +1,14 @@
 import { z } from "zod";
 
+import {
+  MAX_DEEPSEEK_FILE_BASE64_CHARS,
+  inspectCanonicalBase64,
+  isBase64SizeWithinLimit,
+} from "./image-data.js";
+
 const FILE_ID_PATTERN = /^file-api-[a-zA-Z0-9_-]+$/;
 const SUPPORTED_IMAGE_DATA_URL_PATTERN =
   /^data:image\/(jpeg|png|gif|webp);base64,([a-zA-Z0-9+/]+={0,2})$/;
-const RAW_BASE64_PATTERN = /^[a-zA-Z0-9+/]+={0,2}$/;
 
 const fileIdSchema = z.string().regex(FILE_ID_PATTERN, "Expected a DeepSeek file ID starting with `file-api-`");
 
@@ -405,7 +410,8 @@ export const resetConversationToolInputSchema = z.object({
 export const uploadFileToolInputSchema = z.object({
   filename: z.string().min(1).max(512),
   file_data: z.string().refine(hasValidUploadBase64, {
-    message: "Expected raw base64 or a JPEG, PNG, GIF, or WebP base64 data URL",
+    message:
+      "Expected raw base64 or a JPEG, PNG, GIF, or WebP base64 data URL no larger than 64 MiB",
   }),
   expires_after_seconds: z.number().int().min(3600).max(2592000).optional(),
 });
@@ -458,17 +464,13 @@ function hasValidBase64Payload(value: string): boolean {
   const commaIndex = value.indexOf(",");
   const payload = commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
 
-  if (payload.length === 0 || payload.length % 4 !== 0 || !RAW_BASE64_PATTERN.test(payload)) {
+  if (payload.length === 0 || payload.length > MAX_DEEPSEEK_FILE_BASE64_CHARS) {
     return false;
   }
 
-  try {
-    const decoded = Buffer.from(payload, "base64");
-    return (
-      decoded.length > 0 &&
-      decoded.toString("base64").replace(/=+$/, "") === payload.replace(/=+$/, "")
-    );
-  } catch {
-    return false;
-  }
+  const inspection = inspectCanonicalBase64(payload);
+  return (
+    inspection !== undefined &&
+    isBase64SizeWithinLimit(payload.length, inspection.padding)
+  );
 }

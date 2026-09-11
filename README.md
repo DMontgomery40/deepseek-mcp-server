@@ -173,9 +173,10 @@ Supported image formats are JPEG, PNG, GIF, and WebP. Detail may be `low`,
 
 `upload_file` accepts raw base64 or a supported image data URL. It deliberately
 does not accept local file paths and does not fetch arbitrary URLs on the
-server. The bytes are signature-checked before upload. Uploaded data is stored
-by DeepSeek under your account; use an expiry or `delete_file` when it should
-not persist. Expiry must be between 3,600 and 2,592,000 seconds.
+server. Decoded uploads are limited to 64 MiB, and the bytes are
+signature-checked before upload. Uploaded data is stored by DeepSeek under your
+account; use an expiry or `delete_file` when it should not persist. Expiry must
+be between 3,600 and 2,592,000 seconds.
 
 ## Streamable HTTP
 

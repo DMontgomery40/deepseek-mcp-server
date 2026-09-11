@@ -116,7 +116,8 @@ DELETE https://api.deepseek.com/files/{file_id}
 
 Uploads use multipart form data with `purpose=user_data`. This MCP server
 accepts raw base64 or a JPEG/PNG/GIF/WebP data URL and performs signature
-validation before upload. It never reads a caller-supplied local file path.
+validation before upload. Decoded uploads are limited to 64 MiB. It never reads
+a caller-supplied local file path.
 
 ## FIM
 
