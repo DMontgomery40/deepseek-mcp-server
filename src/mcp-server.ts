@@ -39,19 +39,19 @@ const ENDPOINT_MATRIX = [
     endpoint: "/chat/completions",
     method: "POST",
     tool: "chat_completion",
-    description: "V4 Chat Completions API with thinking mode, tool calls, JSON output, streaming and non-streaming",
+    description: "V4.1 Chat Completions API with text/images, thinking, tool calls, JSON output, and streaming",
   },
   {
     endpoint: "/responses",
     method: "POST",
     tool: "create_response",
-    description: "Native V4 Responses API with text, reasoning, function tools, web search, and streaming",
+    description: "Native V4.1 Responses API with text/images, reasoning, function tools, web search, and streaming",
   },
   {
     endpoint: "/beta/completions",
     method: "POST",
     tool: "completion",
-    description: "V4 Pro FIM Completions API",
+    description: "V4.1 Flash FIM Completions API",
   },
   {
     endpoint: "/models",
@@ -256,10 +256,22 @@ const listConversationsOutputSchema = z
   .passthrough();
 
 export function createDeepSeekMcpServer(options: DeepSeekMcpServerOptions): McpServer {
-  const server = new McpServer({
-    name: "deepseek-mcp-server",
-    version: options.version ?? SERVER_VERSION,
-  });
+  const server = new McpServer(
+    {
+      name: "deepseek-mcp-server",
+      version: options.version ?? SERVER_VERSION,
+    },
+    {
+      cacheHints: {
+        "tools/list": { ttlMs: 3_600_000, cacheScope: "public" },
+        "prompts/list": { ttlMs: 3_600_000, cacheScope: "public" },
+        "resources/list": { ttlMs: 0, cacheScope: "private" },
+        "resources/templates/list": { ttlMs: 3_600_000, cacheScope: "public" },
+        "resources/read": { ttlMs: 0, cacheScope: "private" },
+        "server/discover": { ttlMs: 3_600_000, cacheScope: "public" },
+      },
+    },
+  );
 
   registerResources(server, options);
   registerPrompts(server, options);
@@ -275,6 +287,7 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
     {
       description: "DeepSeek endpoint/tool mapping exposed by this MCP server",
       mimeType: "application/json",
+      cacheHint: { ttlMs: 3_600_000, cacheScope: "public" },
     },
     async (uri) => ({
       contents: [
@@ -293,6 +306,7 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
     {
       description: "Runtime metadata for this MCP process",
       mimeType: "application/json",
+      cacheHint: { ttlMs: 0, cacheScope: "private" },
     },
     async (uri) => ({
       contents: [
@@ -327,6 +341,7 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
     {
       description: "Live model list from DeepSeek /models endpoint",
       mimeType: "application/json",
+      cacheHint: { ttlMs: 30_000, cacheScope: "private" },
     },
     async (uri) => {
       const models = await options.client.listModels();
@@ -358,6 +373,7 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
     {
       description: "Read stored messages for a specific conversation_id",
       mimeType: "application/json",
+      cacheHint: { ttlMs: 0, cacheScope: "private" },
     },
     async (uri, variables) => {
       const raw = variables.conversationId;

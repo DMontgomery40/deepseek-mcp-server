@@ -80,6 +80,26 @@ describe("Streamable HTTP transport", () => {
 
         const tools = await client.listTools();
         expect(tools.tools.map((tool) => tool.name)).toContain("create_response");
+        expect(tools).toMatchObject({ ttlMs: 3_600_000, cacheScope: "public" });
+
+        const prompts = await client.listPrompts();
+        expect(prompts).toMatchObject({ ttlMs: 3_600_000, cacheScope: "public" });
+
+        const resources = await client.listResources();
+        expect(resources).toMatchObject({ ttlMs: 0, cacheScope: "private" });
+
+        const endpointResource = await client.readResource({
+          uri: "deepseek://api/endpoints",
+        });
+        expect(endpointResource).toMatchObject({
+          ttlMs: 3_600_000,
+          cacheScope: "public",
+        });
+
+        const runtimeResource = await client.readResource({
+          uri: "deepseek://api/runtime",
+        });
+        expect(runtimeResource).toMatchObject({ ttlMs: 0, cacheScope: "private" });
 
         const models = await client.callTool({ name: "list_models", arguments: {} });
         expect(models.isError).toBeFalsy();

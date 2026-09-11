@@ -3,7 +3,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 
 const url = process.env.DEEPSEEK_REMOTE_MCP_URL || "https://deepseek-mcp.ragweld.com/mcp";
 const token = process.env.DEEPSEEK_MCP_AUTH_TOKEN;
-const model = process.env.DEEPSEEK_REMOTE_SMOKE_MODEL || "deepseek-v4-flash";
+const model = process.env.DEEPSEEK_REMOTE_SMOKE_MODEL || "deepseek-flash";
 const expectedText = process.env.DEEPSEEK_REMOTE_SMOKE_EXPECT || "REMOTE_SMOKE_OK";
 const prompt = process.env.DEEPSEEK_REMOTE_SMOKE_PROMPT || `Reply with exactly: ${expectedText}`;
 const timeoutMs = Number(process.env.DEEPSEEK_REMOTE_SMOKE_TIMEOUT_MS || 30000);
@@ -21,10 +21,13 @@ const transport = new StreamableHTTPClientTransport(new URL(url), {
   },
 });
 
-const client = new Client({
-  name: "deepseek-remote-smoke",
-  version: "1.0.0",
-});
+const client = new Client(
+  {
+    name: "deepseek-remote-smoke",
+    version: "1.0.0",
+  },
+  { versionNegotiation: { mode: "auto" } },
+);
 
 const requiredTools = [
   "chat_completion",
@@ -32,6 +35,10 @@ const requiredTools = [
   "create_response",
   "list_models",
   "get_user_balance",
+  "upload_file",
+  "list_files",
+  "retrieve_file",
+  "delete_file",
   "reset_conversation",
   "list_conversations",
 ];

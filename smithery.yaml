@@ -18,7 +18,7 @@ startCommand:
       defaultModel:
         type: string
         description: Default model used by MCP tools.
-        default: deepseek-v4-flash
+        default: deepseek-flash
   commandFunction:
     # A function that produces the CLI command to start the MCP on stdio.
     |-
@@ -28,6 +28,6 @@ startCommand:
       env: {
         DEEPSEEK_API_KEY: config.deepseekApiKey,
         DEEPSEEK_BASE_URL: config.deepseekBaseUrl ?? 'https://api.deepseek.com',
-        DEEPSEEK_DEFAULT_MODEL: config.defaultModel ?? 'deepseek-v4-flash',
+        DEEPSEEK_DEFAULT_MODEL: config.defaultModel ?? 'deepseek-flash',
       }
     })

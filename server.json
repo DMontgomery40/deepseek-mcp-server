@@ -2,13 +2,13 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.DMontgomery40/deepseek",
   "title": "DeepSeek MCP Server",
-  "description": "DeepSeek V4 MCP server for Chat, Responses, FIM, model listing, and balance APIs.",
+  "description": "DeepSeek V4.1 Flash MCP server for multimodal Chat, Responses, FIM, Files, models, and balance APIs.",
   "websiteUrl": "https://github.com/DMontgomery40/deepseek-mcp-server",
   "repository": {
     "url": "https://github.com/DMontgomery40/deepseek-mcp-server",
     "source": "github"
   },
-  "version": "0.6.0",
+  "version": "1.0.0",
   "remotes": [
     {
       "type": "streamable-http",
@@ -28,7 +28,7 @@
     {
       "registryType": "npm",
       "identifier": "deepseek-mcp-server",
-      "version": "0.6.0",
+      "version": "1.0.0",
       "transport": {
         "type": "stdio"
       },

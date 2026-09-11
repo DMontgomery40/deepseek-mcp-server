@@ -45,8 +45,7 @@ await runEndpoint("GET /models", async () => {
   const models = await client.listModels();
   const ids = Array.isArray(models.data) ? models.data.map((model) => model.id) : [];
 
-  assert(ids.includes("deepseek-v4-flash"), "models response did not include deepseek-v4-flash");
-  assert(ids.includes("deepseek-v4-pro"), "models response did not include deepseek-v4-pro");
+  assert(ids.includes("deepseek-flash"), "models response did not include deepseek-flash");
 
   return {
     object: models.object,
@@ -67,7 +66,7 @@ await runEndpoint("GET /user/balance", async () => {
 
 await runEndpoint("POST /chat/completions non-thinking", async () => {
   const result = await client.createChatCompletion({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     messages: [{ role: "user", content: "Reply exactly with LIVE_CHAT_OK" }],
     thinking: { type: "disabled" },
     max_tokens: 32,
@@ -77,7 +76,7 @@ await runEndpoint("POST /chat/completions non-thinking", async () => {
   const text = choice?.message?.content ?? "";
 
   assert(result.response.object === "chat.completion", "non-stream chat object shape mismatch");
-  assert(result.response.model === "deepseek-v4-flash", "non-stream chat returned unexpected model");
+  assert(result.response.model === "deepseek-flash", "non-stream chat returned unexpected model");
   assert(text.includes("LIVE_CHAT_OK"), `non-stream chat text missing marker: ${text}`);
   assert(!choice?.message?.reasoning_content, "non-thinking chat unexpectedly returned reasoning_content");
 
@@ -93,7 +92,7 @@ await runEndpoint("POST /chat/completions non-thinking", async () => {
 
 await runEndpoint("POST /chat/completions thinking stream", async () => {
   const result = await client.createChatCompletion({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     stream: true,
     messages: [{ role: "user", content: "Compute 19 + 23, then end with LIVE_STREAM_REASONING_OK:42" }],
     thinking: { type: "enabled" },
@@ -124,7 +123,7 @@ await runEndpoint("POST /chat/completions thinking stream", async () => {
 
 await runEndpoint("POST /responses", async () => {
   const result = await client.createResponse({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     input: "Reply exactly with LIVE_RESPONSE_OK",
     reasoning: { effort: "low" },
     max_output_tokens: 64,
@@ -151,7 +150,7 @@ await runEndpoint("POST /responses", async () => {
 
 await runEndpoint("POST /beta/completions FIM", async () => {
   const result = await client.createCompletion({
-    model: "deepseek-v4-pro",
+    model: "deepseek-flash",
     prompt: 'const marker = "LIVE_',
     suffix: '";',
     max_tokens: 16,
@@ -161,7 +160,7 @@ await runEndpoint("POST /beta/completions FIM", async () => {
   const text = choice?.text ?? "";
 
   assert(result.response.object === "text_completion", "FIM completion object shape mismatch");
-  assert(result.response.model === "deepseek-v4-pro", "FIM completion returned unexpected model");
+  assert(result.response.model === "deepseek-flash", "FIM completion returned unexpected model");
   assert(typeof text === "string", "FIM completion text was not a string");
 
   return {
@@ -173,6 +172,57 @@ await runEndpoint("POST /beta/completions FIM", async () => {
   };
 });
 
+await runEndpoint("Files lifecycle + visual Chat", async () => {
+  const onePixelPng =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const uploaded = await client.uploadFile({
+    filename: "deepseek-mcp-live-smoke.png",
+    fileData: onePixelPng,
+    expiresAfterSeconds: 3600,
+  });
+
+  try {
+    assert(uploaded.id.startsWith("file-api-"), "upload did not return a DeepSeek file ID");
+
+    const retrieved = await client.retrieveFile(uploaded.id);
+    assert(retrieved.id === uploaded.id, "retrieve returned a different file");
+
+    const listed = await client.listFiles({ limit: 100, order: "desc", purpose: "user_data" });
+    assert(
+      listed.data.some((file) => file.id === uploaded.id),
+      "uploaded file was missing from list response",
+    );
+
+    const visual = await client.createChatCompletion({
+      model: "deepseek-flash",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Inspect the attached image and reply exactly with LIVE_VISION_OK" },
+            { type: "file", file_id: uploaded.id },
+          ],
+        },
+      ],
+      thinking: { type: "disabled" },
+      max_tokens: 32,
+    });
+    const text = visual.response.choices?.[0]?.message?.content ?? "";
+    assert(text.includes("LIVE_VISION_OK"), `visual chat text missing marker: ${text}`);
+
+    return {
+      file_id: uploaded.id,
+      bytes: uploaded.bytes,
+      listed: true,
+      visual_model: visual.response.model,
+      visual_text: text,
+    };
+  } finally {
+    const deleted = await client.deleteFile(uploaded.id);
+    assert(deleted.id === uploaded.id && deleted.deleted, "file cleanup did not confirm deletion");
+  }
+});
+
 const mcpResults = {};
 
 async function runTool(tool, args) {
@@ -180,7 +230,7 @@ async function runTool(tool, args) {
     const server = createDeepSeekMcpServer({
       client,
       conversations: new ConversationStore(200),
-      defaultModel: "deepseek-v4-flash",
+      defaultModel: "deepseek-flash",
       version: "live-smoke",
     });
 
@@ -213,19 +263,19 @@ await runTool("list_models", {});
 await runTool("get_user_balance", {});
 await runTool("chat_completion", {
   message: "Reply exactly with MCP_CHAT_OK",
-  model: "deepseek-v4-flash",
+  model: "deepseek-flash",
   thinking: { type: "disabled" },
   max_tokens: 32,
 });
 await runTool("completion", {
   prompt: 'const marker = "MCP_',
   suffix: '";',
-  model: "deepseek-v4-pro",
+  model: "deepseek-flash",
   max_tokens: 16,
 });
 await runTool("create_response", {
   input: "Reply exactly with MCP_RESPONSE_OK",
-  model: "deepseek-v4-flash",
+  model: "deepseek-flash",
   reasoning: { effort: "low" },
   max_output_tokens: 64,
 });

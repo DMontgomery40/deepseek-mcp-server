@@ -1,8 +1,8 @@
 {
   "name": "deepseek-mcp-server",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "mcpName": "io.github.DMontgomery40/deepseek",
-  "description": "Model Context Protocol server for DeepSeek V4 Chat, Responses, FIM, models, and balance APIs.",
+  "description": "MCP server for DeepSeek V4.1 Flash chat, vision, Responses, FIM, Files, models, and balance APIs.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
