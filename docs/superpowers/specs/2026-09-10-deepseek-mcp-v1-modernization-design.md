@@ -1,7 +1,7 @@
 # DeepSeek MCP v1 Modernization Design
 
-**Status:** Approved direction, pending written-spec review  
-**Date:** 2026-09-10  
+**Status:** Approved direction, pending written-spec review
+**Date:** 2026-09-10
 **Target release:** `deepseek-mcp-server@1.0.0` / Git tag `v1.0.0`
 
 ## Problem

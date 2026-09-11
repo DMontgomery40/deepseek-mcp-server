@@ -28,6 +28,7 @@
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "dotenv": "^17.4.2",
+    "hono": "^4.13.7",
     "zod": "^4.4.3"
   },
   "engines": {
