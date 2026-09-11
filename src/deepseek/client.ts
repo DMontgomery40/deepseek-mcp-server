@@ -5,10 +5,15 @@ import {
   DeepSeekChatCompletionResponse,
   DeepSeekCompletionRequest,
   DeepSeekCompletionResponse,
+  DeepSeekFile,
+  DeepSeekFileDeletion,
+  DeepSeekFileList,
+  DeepSeekListFilesRequest,
   DeepSeekListModelsResponse,
   DeepSeekResponse,
   DeepSeekResponseRequest,
   DeepSeekToolCall,
+  DeepSeekUploadFileRequest,
   DeepSeekUsage,
   DeepSeekUserBalanceResponse,
   ResponseExecutionResult,
@@ -47,9 +52,11 @@ export class DeepSeekApiError extends Error {
 }
 
 interface RequestOptions {
-  method: "GET" | "POST";
+  method: "DELETE" | "GET" | "POST";
   path: string;
-  body?: Record<string, unknown>;
+  jsonBody?: Record<string, unknown>;
+  body?: BodyInit;
+  query?: URLSearchParams;
   stream?: boolean;
   baseUrlOverride?: string;
 }
@@ -84,7 +91,7 @@ export class DeepSeekApiClient {
       const chunks = await this.requestSseJson<unknown>({
         method: "POST",
         path: "/chat/completions",
-        body: request as Record<string, unknown>,
+        jsonBody: request as Record<string, unknown>,
         stream: true,
       });
 
@@ -97,7 +104,7 @@ export class DeepSeekApiClient {
     const response = await this.requestJson<DeepSeekChatCompletionResponse>({
       method: "POST",
       path: "/chat/completions",
-      body: request as Record<string, unknown>,
+      jsonBody: request as Record<string, unknown>,
       stream: false,
     });
 
@@ -109,7 +116,7 @@ export class DeepSeekApiClient {
       const chunks = await this.requestSseJson<unknown>({
         method: "POST",
         path: "/beta/completions",
-        body: request as Record<string, unknown>,
+        jsonBody: request as Record<string, unknown>,
         stream: true,
       });
 
@@ -122,7 +129,7 @@ export class DeepSeekApiClient {
     const response = await this.requestJson<DeepSeekCompletionResponse>({
       method: "POST",
       path: "/beta/completions",
-      body: request as Record<string, unknown>,
+      jsonBody: request as Record<string, unknown>,
       stream: false,
     });
 
@@ -134,7 +141,7 @@ export class DeepSeekApiClient {
       const events = await this.requestSseJson<unknown>({
         method: "POST",
         path: "/responses",
-        body: request as Record<string, unknown>,
+        jsonBody: request as Record<string, unknown>,
         stream: true,
       });
 
@@ -160,7 +167,7 @@ export class DeepSeekApiClient {
     const response = await this.requestJson<DeepSeekResponse>({
       method: "POST",
       path: "/responses",
-      body: request as Record<string, unknown>,
+      jsonBody: request as Record<string, unknown>,
       stream: false,
     });
 
@@ -180,6 +187,61 @@ export class DeepSeekApiClient {
       method: "GET",
       path: "/user/balance",
       stream: false,
+    });
+  }
+
+  async uploadFile(request: DeepSeekUploadFileRequest): Promise<DeepSeekFile> {
+    const { bytes, mediaType } = decodeImageData(request.fileData);
+    const form = new FormData();
+    form.append("purpose", "user_data");
+    form.append("file", new Blob([bytes], { type: mediaType }), request.filename);
+
+    if (request.expiresAfterSeconds !== undefined) {
+      form.append("expires_after[anchor]", "created_at");
+      form.append("expires_after[seconds]", String(request.expiresAfterSeconds));
+    }
+
+    return this.requestJson<DeepSeekFile>({
+      method: "POST",
+      path: "/files",
+      body: form,
+    });
+  }
+
+  async listFiles(request: DeepSeekListFilesRequest = {}): Promise<DeepSeekFileList> {
+    const query = new URLSearchParams();
+
+    if (request.after !== undefined) {
+      query.set("after", request.after);
+    }
+    if (request.limit !== undefined) {
+      query.set("limit", String(request.limit));
+    }
+    if (request.order !== undefined) {
+      query.set("order", request.order);
+    }
+    if (request.purpose !== undefined) {
+      query.set("purpose", request.purpose);
+    }
+
+    return this.requestJson<DeepSeekFileList>({
+      method: "GET",
+      path: "/files",
+      query,
+    });
+  }
+
+  async retrieveFile(fileId: string): Promise<DeepSeekFile> {
+    return this.requestJson<DeepSeekFile>({
+      method: "GET",
+      path: `/files/${encodeURIComponent(fileId)}`,
+    });
+  }
+
+  async deleteFile(fileId: string): Promise<DeepSeekFileDeletion> {
+    return this.requestJson<DeepSeekFileDeletion>({
+      method: "DELETE",
+      path: `/files/${encodeURIComponent(fileId)}`,
     });
   }
 
@@ -248,15 +310,19 @@ export class DeepSeekApiClient {
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await this.fetchFn(this.resolveUrl(options.path, options.baseUrlOverride), {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${this.apiKey}`,
+        Accept: options.stream ? "text/event-stream" : "application/json",
+        "User-Agent": this.userAgent,
+      };
+      if (options.jsonBody !== undefined) {
+        headers["Content-Type"] = "application/json";
+      }
+
+      const response = await this.fetchFn(this.resolveUrl(options.path, options.baseUrlOverride, options.query), {
         method: options.method,
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-          Accept: options.stream ? "text/event-stream" : "application/json",
-          "User-Agent": this.userAgent,
-        },
-        body: options.body ? JSON.stringify(options.body) : undefined,
+        headers,
+        body: options.jsonBody !== undefined ? JSON.stringify(options.jsonBody) : options.body,
         signal: controller.signal,
       });
 
@@ -300,12 +366,72 @@ export class DeepSeekApiClient {
     });
   }
 
-  private resolveUrl(path: string, baseUrlOverride?: string): string {
+  private resolveUrl(path: string, baseUrlOverride?: string, query?: URLSearchParams): string {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     const baseUrl = baseUrlOverride ?? this.baseUrl;
-    return `${baseUrl}${normalizedPath}`;
+    const queryString = query?.toString();
+    return `${baseUrl}${normalizedPath}${queryString ? `?${queryString}` : ""}`;
   }
 
+}
+
+function decodeImageData(fileData: string): { bytes: Uint8Array<ArrayBuffer>; mediaType: string } {
+  const dataUrlMatch = /^data:(image\/(?:jpeg|png|gif|webp));base64,([a-zA-Z0-9+/]+={0,2})$/.exec(fileData);
+  const payload = dataUrlMatch?.[2] ?? fileData;
+  const decoded = Buffer.from(payload, "base64");
+  const detectedMediaType = detectImageMediaType(decoded);
+
+  if (!detectedMediaType) {
+    throw new DeepSeekApiError("Unsupported image format; expected JPEG, PNG, GIF, or WebP");
+  }
+
+  if (dataUrlMatch?.[1] && dataUrlMatch[1] !== detectedMediaType) {
+    throw new DeepSeekApiError(
+      `Image data URL declares ${dataUrlMatch[1]} but contains ${detectedMediaType}`,
+    );
+  }
+
+  const bytes = new Uint8Array(decoded.byteLength);
+  bytes.set(decoded);
+
+  return { bytes, mediaType: detectedMediaType };
+}
+
+function detectImageMediaType(bytes: Uint8Array): string | undefined {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  if (bytes.length >= 6) {
+    const signature = Buffer.from(bytes.subarray(0, 6)).toString("ascii");
+    if (signature === "GIF87a" || signature === "GIF89a") {
+      return "image/gif";
+    }
+  }
+
+  if (
+    bytes.length >= 12 &&
+    Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF" &&
+    Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+
+  return undefined;
 }
 
 function normalizeBaseUrl(input: string): string {

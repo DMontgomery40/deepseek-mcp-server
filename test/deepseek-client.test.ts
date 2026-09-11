@@ -426,4 +426,141 @@ describe("DeepSeekApiClient", () => {
     expect(firstUrl).toBe("https://api.deepseek.com/models");
     expect(secondUrl).toBe("https://api.deepseek.com/user/balance");
   });
+
+  it("uploads image bytes as multipart without overriding the boundary content type", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        id: "file-api-upload1",
+        object: "file",
+        bytes: 8,
+        created_at: 100,
+        filename: "pixel.png",
+        purpose: "user_data",
+        expires_at: 3700,
+      }),
+    );
+    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const filesClient = client as unknown as {
+      uploadFile(input: {
+        filename: string;
+        fileData: string;
+        expiresAfterSeconds?: number;
+      }): Promise<{ id: string; filename: string }>;
+    };
+
+    const uploaded = await filesClient.uploadFile({
+      filename: "pixel.png",
+      fileData: "data:image/png;base64,iVBORw0KGgo=",
+      expiresAfterSeconds: 3600,
+    });
+
+    expect(uploaded).toMatchObject({ id: "file-api-upload1", filename: "pixel.png" });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.deepseek.com/files");
+    expect(init.method).toBe("POST");
+    const headers = new Headers(init.headers);
+    expect(headers.get("authorization")).toBe("Bearer test-key");
+    expect(headers.get("content-type")).toBeNull();
+    expect(init.body).toBeInstanceOf(FormData);
+    const form = init.body as FormData;
+    expect(form.get("purpose")).toBe("user_data");
+    expect(form.get("expires_after[anchor]")).toBe("created_at");
+    expect(form.get("expires_after[seconds]")).toBe("3600");
+    const file = form.get("file");
+    expect(file).toBeInstanceOf(Blob);
+    expect((file as File).name).toBe("pixel.png");
+    expect((file as Blob).type).toBe("image/png");
+  });
+
+  it("lists, retrieves, and deletes files with exact query and path contracts", async () => {
+    const file = {
+      id: "file-api-a",
+      object: "file",
+      bytes: 8,
+      created_at: 100,
+      filename: "pixel.png",
+      purpose: "user_data",
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          object: "list",
+          data: [file],
+          first_id: "file-api-a",
+          last_id: "file-api-a",
+          has_more: false,
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(file))
+      .mockResolvedValueOnce(
+        jsonResponse({ id: "file-api-a", object: "file", deleted: true }),
+      );
+    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const filesClient = client as unknown as {
+      listFiles(input: {
+        after?: string;
+        limit?: number;
+        order?: "asc" | "desc";
+        purpose?: "user_data";
+      }): Promise<{ data: Array<{ id: string }> }>;
+      retrieveFile(fileId: string): Promise<{ id: string }>;
+      deleteFile(fileId: string): Promise<{ id: string; deleted: boolean }>;
+    };
+
+    const listed = await filesClient.listFiles({
+      after: "file-api-a",
+      limit: 25,
+      order: "desc",
+      purpose: "user_data",
+    });
+    const retrieved = await filesClient.retrieveFile("file-api-a");
+    const deleted = await filesClient.deleteFile("file-api-a");
+
+    expect(listed.data.map((entry) => entry.id)).toEqual(["file-api-a"]);
+    expect(retrieved.id).toBe("file-api-a");
+    expect(deleted).toEqual({ id: "file-api-a", object: "file", deleted: true });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.deepseek.com/files?after=file-api-a&limit=25&order=desc&purpose=user_data",
+      "https://api.deepseek.com/files/file-api-a",
+      "https://api.deepseek.com/files/file-api-a",
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(["GET", "GET", "DELETE"]);
+  });
+
+  it("rejects unsupported uploaded image bytes before making a request", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const filesClient = client as unknown as {
+      uploadFile(input: { filename: string; fileData: string }): Promise<unknown>;
+    };
+    const suppliedPayload = Buffer.from("not an image", "utf8").toString("base64");
+
+    await expect(
+      filesClient.uploadFile({ filename: "fake.png", fileData: suppliedPayload }),
+    ).rejects.toThrow("Unsupported image format");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not echo uploaded image data when DeepSeek rejects the file", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ error: { message: "image rejected" } }, 400),
+    );
+    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const filesClient = client as unknown as {
+      uploadFile(input: { filename: string; fileData: string }): Promise<unknown>;
+    };
+    const suppliedPayload = "data:image/png;base64,iVBORw0KGgo=";
+
+    let caught: unknown;
+    try {
+      await filesClient.uploadFile({ filename: "pixel.png", fileData: suppliedPayload });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(DeepSeekApiError);
+    expect((caught as Error).message).toBe("image rejected");
+    expect((caught as Error).message).not.toContain(suppliedPayload);
+  });
 });
