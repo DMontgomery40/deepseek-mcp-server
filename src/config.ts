@@ -9,7 +9,6 @@ export interface RuntimeConfig {
   httpHost: string;
   httpPort: number;
   httpPath: string;
-  httpStatefulSession: boolean;
   httpAllowedOrigins: string[];
   conversationMaxMessages: number;
 }
@@ -27,12 +26,11 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     deepseekApiKey,
     deepseekBaseUrl: env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
     deepseekRequestTimeoutMs: parsePositiveInt(env.DEEPSEEK_REQUEST_TIMEOUT_MS, 120000),
-    defaultModel: env.DEEPSEEK_DEFAULT_MODEL ?? "deepseek-v4-flash",
+    defaultModel: env.DEEPSEEK_DEFAULT_MODEL ?? "deepseek-flash",
     transport,
     httpHost: env.MCP_HTTP_HOST ?? "127.0.0.1",
     httpPort: parsePort(env.MCP_HTTP_PORT, 3001),
     httpPath: normalizePath(env.MCP_HTTP_PATH ?? "/mcp"),
-    httpStatefulSession: parseBoolean(env.MCP_HTTP_STATEFUL_SESSION, false),
     httpAllowedOrigins: parseCsv(env.MCP_HTTP_ALLOWED_ORIGINS),
     conversationMaxMessages: parsePositiveInt(env.CONVERSATION_MAX_MESSAGES, 200),
   };
@@ -47,23 +45,6 @@ function parseCsv(value: string | undefined): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
-}
-
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
-  if (value === undefined) {
-    return defaultValue;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "y", "on"].includes(normalized)) {
-    return true;
-  }
-
-  if (["0", "false", "no", "n", "off"].includes(normalized)) {
-    return false;
-  }
-
-  return defaultValue;
 }
 
 function parsePositiveInt(value: string | undefined, defaultValue: number): number {

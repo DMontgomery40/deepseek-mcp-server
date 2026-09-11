@@ -3,8 +3,7 @@ import { ConversationStore } from "../build/conversation-store.js";
 import { DeepSeekApiClient } from "../build/deepseek/client.js";
 import { createDeepSeekMcpServer } from "../build/mcp-server.js";
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
 const apiKey = process.env.DEEPSEEK_API_KEY;
 if (!apiKey) {

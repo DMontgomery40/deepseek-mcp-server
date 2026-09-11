@@ -1,7 +1,6 @@
 import { AddressInfo } from "node:net";
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { ConversationStore } from "../src/conversation-store.js";
@@ -10,9 +9,9 @@ import { createDeepSeekMcpServer } from "../src/mcp-server.js";
 import { startStreamableHttpServer } from "../src/transports/http.js";
 
 describe("Streamable HTTP transport", () => {
-  it.each([false, true])(
-    "initializes, lists tools, and returns success and structured failure results (stateful=%s)",
-    async (statefulSession) => {
+  it(
+    "negotiates the 2026-07-28 protocol and returns structured tool results",
+    async () => {
       const api = {
         createChatCompletion: vi.fn(async () => {
           throw new DeepSeekApiError("upstream unavailable", { status: 503 });
@@ -42,7 +41,6 @@ describe("Streamable HTTP transport", () => {
           host: "127.0.0.1",
           port: 0,
           path: "/mcp",
-          statefulSession,
           allowedOrigins: ["https://trusted.example"],
         },
       );
@@ -50,7 +48,10 @@ describe("Streamable HTTP transport", () => {
       const transport = new StreamableHTTPClientTransport(
         new URL(`http://127.0.0.1:${address.port}/mcp`),
       );
-      const client = new Client({ name: "http-test-client", version: "1.0.0" });
+      const client = new Client(
+        { name: "http-test-client", version: "1.0.0" },
+        { versionNegotiation: { mode: "auto" } },
+      );
 
       try {
         const preflight = await fetch(`http://127.0.0.1:${address.port}/mcp`, {
@@ -75,6 +76,7 @@ describe("Streamable HTTP transport", () => {
         expect(rejectedOrigin.status).toBe(403);
 
         await client.connect(transport);
+        expect(client.getProtocolEra()).toBe("modern");
 
         const tools = await client.listTools();
         expect(tools.tools.map((tool) => tool.name)).toContain("create_response");
@@ -102,4 +104,43 @@ describe("Streamable HTTP transport", () => {
       }
     },
   );
+
+  it("keeps stateless compatibility with 2025-era clients", async () => {
+    const api = {
+      createChatCompletion: vi.fn(),
+      createCompletion: vi.fn(),
+      createResponse: vi.fn(),
+      listModels: vi.fn(async () => ({
+        object: "list",
+        data: [{ id: "deepseek-flash", object: "model" }],
+      })),
+      getUserBalance: vi.fn(),
+    };
+    const runtime = await startStreamableHttpServer(
+      () =>
+        createDeepSeekMcpServer({
+          client: api as unknown as DeepSeekApiClient,
+          conversations: new ConversationStore(200),
+          defaultModel: "deepseek-flash",
+          version: "http-test",
+        }),
+      { host: "127.0.0.1", port: 0, path: "/mcp" },
+    );
+    const address = runtime.server.address() as AddressInfo;
+    const client = new Client({ name: "legacy-http-test-client", version: "1.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${address.port}/mcp`),
+    );
+
+    try {
+      await client.connect(transport);
+      expect(client.getProtocolEra()).toBe("legacy");
+
+      const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name)).toContain("upload_file");
+    } finally {
+      await client.close().catch(() => undefined);
+      await runtime.close();
+    }
+  });
 });

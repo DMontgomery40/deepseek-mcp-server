@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 import { ConversationStore } from "./conversation-store.js";
 import { loadRuntimeConfig } from "./config.js";
@@ -30,14 +30,12 @@ async function main(): Promise<void> {
     });
 
   if (config.transport === "stdio") {
-    const mcpServer = createMcpServer();
-    const transport = new StdioServerTransport();
-    await mcpServer.connect(transport);
+    const stdioRuntime = serveStdio(createMcpServer);
 
     console.error("DeepSeek MCP server connected via stdio");
 
     installShutdownHandlers(async () => {
-      await mcpServer.close();
+      await stdioRuntime.close();
     });
 
     return;
@@ -47,7 +45,6 @@ async function main(): Promise<void> {
     host: config.httpHost,
     port: config.httpPort,
     path: config.httpPath,
-    statefulSession: config.httpStatefulSession,
     allowedOrigins: config.httpAllowedOrigins,
   });
 

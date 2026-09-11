@@ -25,7 +25,8 @@
     "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "dotenv": "^17.4.2",
     "zod": "^4.4.3"
   },
@@ -33,9 +34,10 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
     "@types/node": "^25.9.5",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "author": "DMontgomery40",
   "license": "MIT",

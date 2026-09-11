@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
 const url = process.env.DEEPSEEK_REMOTE_MCP_URL || "https://deepseek-mcp.ragweld.com/mcp";
 const token = process.env.DEEPSEEK_MCP_AUTH_TOKEN;
