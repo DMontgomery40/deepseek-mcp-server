@@ -91,7 +91,7 @@ const ENDPOINT_MATRIX = [
   },
 ] as const;
 
-const SERVER_VERSION = "1.0.0";
+const SERVER_VERSION = "1.0.1";
 const RETRYABLE_DEEPSEEK_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
 const RETRYABLE_RESPONSE_ERROR_CODES = new Set([
   "rate_limit_exceeded",

@@ -24,7 +24,7 @@ const transport = new StreamableHTTPClientTransport(new URL(url), {
 const client = new Client(
   {
     name: "deepseek-remote-smoke",
-    version: "1.0.0",
+    version: "1.0.1",
   },
   { versionNegotiation: { mode: "auto" } },
 );

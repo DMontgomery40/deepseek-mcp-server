@@ -2,7 +2,7 @@
 
 **Status:** Approved direction, pending written-spec review
 **Date:** 2026-09-10
-**Target release:** `deepseek-mcp-server@1.0.0` / Git tag `v1.0.0`
+**Target release:** `deepseek-mcp-server@1.0.1` / Git tag `v1.0.1`
 
 ## Problem
 
@@ -57,7 +57,7 @@ This design is based on the official public contracts available on
 8. Keep conversation storage bounded by `CONVERSATION_MAX_MESSAGES`.
 9. Update README, examples, runtime resources, `.env.example`, package
    metadata, lockfile, and MCP Registry metadata in the same release.
-10. Verify, publish npm `1.0.0`, push `v1.0.0`, and create a GitHub release.
+10. Verify, publish npm `1.0.1`, push `v1.0.1`, and create a GitHub release.
 
 ## Non-Goals
 
@@ -72,16 +72,20 @@ This design is based on the official public contracts available on
 - This release will not add persistent database-backed conversation storage.
 - This release will not publish a new OCI image unless separately requested.
   Existing OCI references must remain truthful rather than pointing at an
-  unpublished `1.0.0` image.
+  unpublished `1.0.1` image.
 - This release will not deploy or reconfigure the hosted
   `deepseek-mcp.ragweld.com` service. The remote endpoint remains documented,
   and its smoke test will run only when the required credential is available.
 
 ## Compatibility and Versioning
 
-The package version becomes `1.0.0` because the MCP SDK dependency, transport
+The package version becomes `1.0.1` because the MCP SDK dependency, transport
 lifecycle, and protocol-era behavior change materially. Existing tool names
 and ordinary arguments remain compatible:
+
+The intended `1.0.0` identifier is unavailable because npm retains a tombstone
+for a previously published version, so the release uses the next publishable
+patch version.
 
 - `chat_completion`
 - `create_response`
@@ -148,7 +152,7 @@ and `fetch`; no file is read from disk. Invalid base64 and unsupported image
 media types are rejected before network transmission.
 
 Existing JSON and SSE behavior remains shared across Chat, Responses, and FIM.
-The default user agent changes to `deepseek-mcp-server/1.0.0`.
+The default user agent changes to `deepseek-mcp-server/1.0.1`.
 
 ### MCP Tool Surface
 
@@ -285,7 +289,7 @@ variables:
 - `src/docs/llms-full.txt`
 - Runtime server and user-agent versions
 
-The README and registry metadata will not claim an OCI `1.0.0` image exists.
+The README and registry metadata will not claim an OCI `1.0.1` image exists.
 
 ## Release Procedure
 
@@ -294,10 +298,10 @@ After all verification gates pass:
 1. Confirm the working tree contains only the intended release changes.
 2. Confirm npm authentication and package ownership.
 3. Commit the implementation and release metadata on `main`.
-4. Create annotated tag `v1.0.0` at the verified release commit.
-5. Publish `deepseek-mcp-server@1.0.0` to npm with public access.
-6. Push `main` and `v1.0.0` to `origin`.
-7. Create a GitHub release from `v1.0.0` with capability, compatibility, and
+4. Create annotated tag `v1.0.1` at the verified release commit.
+5. Publish `deepseek-mcp-server@1.0.1` to npm with public access.
+6. Push `main` and `v1.0.1` to `origin`.
+7. Create a GitHub release from `v1.0.1` with capability, compatibility, and
    migration notes.
 8. Verify the npm registry version, GitHub tag, and GitHub release remotely.
 
@@ -318,7 +322,7 @@ until the corresponding remote state is verified.
 - Build, full tests, and npm package dry-run pass from the release commit.
 - Available live/remote smoke tests pass, or unavailable credentials are
   reported precisely.
-- npm reports version `1.0.0` after publication.
-- `origin` contains tag `v1.0.0`, and GitHub shows a release for that tag.
+- npm reports version `1.0.1` after publication.
+- `origin` contains tag `v1.0.1`, and GitHub shows a release for that tag.
 - README and registry metadata describe only capabilities and artifacts that
   exist at release time.

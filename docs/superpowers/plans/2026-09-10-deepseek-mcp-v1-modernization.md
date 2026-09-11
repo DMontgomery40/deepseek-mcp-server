@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish `deepseek-mcp-server@1.0.0` with DeepSeek V4.1 Flash visual input, Files API tools, and dual-era MCP 2026/legacy transports.
+**Goal:** Publish `deepseek-mcp-server@1.0.1` with DeepSeek V4.1 Flash visual input, Files API tools, and dual-era MCP 2026/legacy transports.
 
 **Architecture:** Extend the existing DeepSeek fetch client with typed multimodal JSON and multipart Files API operations, then expose those through the established MCP server factory. Replace MCP SDK v1 transport wiring with the stable v2 split packages, using `serveStdio` and `createMcpHandler` so explicit conversation handles remain application state while protocol transport becomes stateless.
 
@@ -12,13 +12,14 @@
 
 ## Global Constraints
 
-- Target package and server version is exactly `1.0.0`; Git tag is exactly `v1.0.0`.
+- Target package and server version is exactly `1.0.1`; Git tag is exactly
+  `v1.0.1`. npm rejected `1.0.0` because that version identifier is tombstoned.
 - Default model is exactly `deepseek-flash`.
 - Preserve all seven existing MCP tool names and add exactly `upload_file`, `list_files`, `retrieve_file`, and `delete_file`.
 - Keep `include_raw_response` opt-in and conversation storage capped by `CONVERSATION_MAX_MESSAGES`.
 - Do not accept server-local paths for upload and do not echo uploaded image bytes in output or errors.
 - Serve MCP `2026-07-28` and legacy MCP clients over stdio and HTTP.
-- Do not claim or publish an OCI `1.0.0` image.
+- Do not claim or publish an OCI `1.0.1` image.
 - Extend shared tests with bug-family matrices; do not add a new test framework.
 
 ---
@@ -199,7 +200,7 @@ Expected: tool-list and multimodal forwarding expectations fail.
 
 - [ ] **Step 3: Register current tool contracts**
 
-Set server version `1.0.0`, current model metadata to `deepseek-flash`, and add
+Set server version `1.0.1`, current model metadata to `deepseek-flash`, and add
 the four Files registrations. Use output schemas that match every returned
 `structuredContent` object. Preserve raw response opt-in and text output.
 
@@ -306,12 +307,12 @@ git commit -m "feat: migrate to MCP 2026 and SDK v2"
 - Modify: `src/mcp-server.ts`
 
 **Interfaces:**
-- Produces: package and registry metadata for `1.0.0`
+- Produces: package and registry metadata for `1.0.1`
 - Produces: operator documentation for multimodal, Files, MCP 2026, and migration
 
 - [ ] **Step 1: Update package version and all current defaults**
 
-Run `npm version 1.0.0 --no-git-tag-version`, update the runtime server/user
+Run `npm version 1.0.1 --no-git-tag-version`, update the runtime server/user
 agent versions, set `deepseek-flash` in all defaults/examples, and update
 `server.json` npm metadata. Retain the last truthful OCI identifier without
 claiming an unpublished image.
@@ -348,19 +349,19 @@ whitespace errors.
 
 ```bash
 git add README.md .env.example server.json smithery.yaml src/docs package.json package-lock.json scripts src/deepseek/client.ts src/mcp-server.ts
-git commit -m "release: prepare deepseek-mcp-server 1.0.0"
+git commit -m "release: prepare deepseek-mcp-server 1.0.1"
 ```
 
 ### Task 6: Release Verification and Publication
 
 **Files:**
 - Verify all tracked release files
-- Create: annotated Git tag `v1.0.0`
+- Create: annotated Git tag `v1.0.1`
 - Publish: npm package and GitHub release
 
 **Interfaces:**
 - Consumes: verified release commit from Tasks 1-5
-- Produces: npm `deepseek-mcp-server@1.0.0`, remote tag `v1.0.0`, GitHub release
+- Produces: npm `deepseek-mcp-server@1.0.1`, remote tag `v1.0.1`, GitHub release
 
 - [ ] **Step 1: Run final release gate from a clean commit**
 
@@ -384,13 +385,13 @@ Do not print tokens.
 
 - [ ] **Step 5: Create tag, publish, and push**
 
-Create annotated tag `v1.0.0`, run
-`npm publish --access public`, push `main` and `v1.0.0`, then create the GitHub
+Create annotated tag `v1.0.1`, run
+`npm publish --access public`, push `main` and `v1.0.1`, then create the GitHub
 release with concise capability and migration notes. If npm demands an OTP,
 stop at that prompt and report only that action.
 
 - [ ] **Step 6: Verify remote state**
 
 Run `npm view deepseek-mcp-server version`, `git ls-remote --tags origin
-refs/tags/v1.0.0`, and `gh release view v1.0.0`. The task is complete only when
-all three identify `1.0.0`/`v1.0.0`.
+refs/tags/v1.0.1`, and `gh release view v1.0.1`. The task is complete only when
+all three identify `1.0.1`/`v1.0.1`.

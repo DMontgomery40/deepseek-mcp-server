@@ -1,4 +1,4 @@
-# deepseek-mcp-server 1.0.0
+# deepseek-mcp-server 1.0.1
 
 Repository: https://github.com/DMontgomery40/deepseek-mcp-server
 MCP registry name: io.github.DMontgomery40/deepseek

@@ -14,7 +14,7 @@ An MCP server for DeepSeek's current V4.1 Flash API: text and visual chat, the
 Responses API, FIM completion, Files API lifecycle operations, model discovery,
 balance checks, and bounded in-memory conversations.
 
-Version 1.0.0 uses the stable MCP TypeScript SDK v2 and serves both the
+Version 1.0.1 uses the stable MCP TypeScript SDK v2 and serves both the
 2026-07-28 protocol and stateless legacy clients.
 
 ## What's current
@@ -280,9 +280,9 @@ with cleanup.
 ## Registry identity
 
 - MCP Registry: `io.github.DMontgomery40/deepseek`
-- npm: `deepseek-mcp-server@1.0.0`
+- npm: `deepseek-mcp-server@1.0.1`
 - OCI: `docker.io/dmontgomery40/deepseek-mcp-server:0.5.0` is the last
-  published image and does not contain the 1.0.0 feature set.
+  published image and does not contain the 1.0.1 feature set.
 
 ## Official references
 

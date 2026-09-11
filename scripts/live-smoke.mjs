@@ -235,7 +235,7 @@ async function runTool(tool, args) {
     });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const mcpClient = new Client({ name: "live-smoke-client", version: "1.0.0" });
+    const mcpClient = new Client({ name: "live-smoke-client", version: "1.0.1" });
 
     await Promise.all([server.connect(serverTransport), mcpClient.connect(clientTransport)]);
     const result = await mcpClient.callTool({ name: tool, arguments: args });
