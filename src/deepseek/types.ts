@@ -1,11 +1,38 @@
-export type DeepSeekModelId = "deepseek-v4-flash" | "deepseek-v4-pro" | string;
+export type DeepSeekModelId =
+  | "deepseek-flash"
+  | "deepseek-v4-pro"
+  | "deepseek-v4-flash"
+  | "deepseek-v4-flash-vision-exp"
+  | string;
 
 export type ChatRole = "system" | "user" | "assistant" | "tool";
+
+export type DeepSeekImageDetail = "low" | "high" | "original" | "auto";
 
 export interface ChatContentPartText {
   type: "text";
   text: string;
 }
+
+export interface DeepSeekChatImageContentPart {
+  type: "image_url";
+  image_url: {
+    url: string;
+    detail?: DeepSeekImageDetail;
+  };
+}
+
+export interface DeepSeekChatFileContentPart {
+  type: "file";
+  file_id?: string;
+  file_data?: string;
+  filename?: string;
+}
+
+export type DeepSeekChatContentPart =
+  | ChatContentPartText
+  | DeepSeekChatImageContentPart
+  | DeepSeekChatFileContentPart;
 
 export interface DeepSeekFunctionCall {
   name: string;
@@ -21,7 +48,7 @@ export interface DeepSeekToolCall {
 
 export interface DeepSeekChatMessage {
   role: ChatRole;
-  content?: string | null;
+  content?: string | DeepSeekChatContentPart[] | null;
   name?: string;
   tool_call_id?: string;
   prefix?: boolean;
@@ -71,7 +98,7 @@ export interface DeepSeekChatCompletionRequest {
   thinking?: {
     type?: "enabled" | "disabled";
   };
-  reasoning_effort?: "low" | "high" | "max";
+  reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   user_id?: string;
   [key: string]: unknown;
 }
@@ -146,9 +173,76 @@ export interface DeepSeekCompletionResponse {
   [key: string]: unknown;
 }
 
+export interface DeepSeekResponseTextContentPart {
+  type: "input_text" | "output_text";
+  text: string;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekResponseImageContentPart {
+  type: "input_image";
+  image_url?: string;
+  file_id?: string;
+  detail?: DeepSeekImageDetail;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekResponseReasoningContentPart {
+  type: "reasoning_text";
+  text: string;
+  [key: string]: unknown;
+}
+
+export type DeepSeekResponseInputContentPart =
+  | DeepSeekResponseTextContentPart
+  | DeepSeekResponseImageContentPart;
+
+export type DeepSeekResponseInputItem =
+  | {
+      type?: "message";
+      role: "user" | "assistant" | "system" | "developer";
+      content: string | DeepSeekResponseInputContentPart[];
+      [key: string]: unknown;
+    }
+  | {
+      type: "function_call";
+      call_id: string;
+      name: string;
+      arguments: string;
+      [key: string]: unknown;
+    }
+  | {
+      type: "function_call_output";
+      call_id: string;
+      output: string | DeepSeekResponseInputContentPart[];
+      [key: string]: unknown;
+    }
+  | {
+      type: "custom_tool_call";
+      call_id: string;
+      name: string;
+      input: string;
+      [key: string]: unknown;
+    }
+  | {
+      type: "custom_tool_call_output";
+      call_id: string;
+      output: string | DeepSeekResponseInputContentPart[];
+      [key: string]: unknown;
+    }
+  | {
+      type: "reasoning";
+      content: DeepSeekResponseReasoningContentPart[];
+      [key: string]: unknown;
+    }
+  | {
+      type: "web_search_call";
+      [key: string]: unknown;
+    };
+
 export interface DeepSeekResponseRequest {
   model: DeepSeekModelId;
-  input?: string | Array<Record<string, unknown>>;
+  input?: string | DeepSeekResponseInputItem[];
   instructions?: string;
   reasoning?: {
     effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -208,6 +302,46 @@ export interface DeepSeekModel {
 export interface DeepSeekListModelsResponse {
   object: string;
   data: DeepSeekModel[];
+}
+
+export interface DeepSeekFile {
+  id: string;
+  object: "file";
+  bytes: number;
+  created_at: number;
+  filename: string;
+  purpose: "user_data";
+  expires_at?: number;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekFileList {
+  object: "list";
+  data: DeepSeekFile[];
+  first_id?: string;
+  last_id?: string;
+  has_more: boolean;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekFileDeletion {
+  id: string;
+  object: "file";
+  deleted: boolean;
+  [key: string]: unknown;
+}
+
+export interface DeepSeekUploadFileRequest {
+  filename: string;
+  fileData: string;
+  expiresAfterSeconds?: number;
+}
+
+export interface DeepSeekListFilesRequest {
+  after?: string;
+  limit?: number;
+  order?: "asc" | "desc";
+  purpose?: "user_data";
 }
 
 export interface DeepSeekBalanceInfo {

@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   chatCompletionToolInputSchema,
   completionToolInputSchema,
+  fileIdToolInputSchema,
+  listFilesToolInputSchema,
   responseToolInputSchema,
+  uploadFileToolInputSchema,
 } from "../src/deepseek/schemas.js";
 
 describe("tool input schemas", () => {
@@ -26,6 +29,67 @@ describe("tool input schemas", () => {
     expect(parsed.reasoning_effort).toBe("low");
     expect(parsed.user_id).toBe("tenant_123");
     expect(parsed.extra_body?.future_parameter).toBe("supported");
+  });
+
+  it("defaults chat requests to deepseek-flash and accepts every current reasoning effort", () => {
+    const efforts = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+    for (const reasoning_effort of efforts) {
+      const parsed = chatCompletionToolInputSchema.parse({
+        message: "hello",
+        reasoning_effort,
+      });
+
+      expect(parsed.model).toBe("deepseek-flash");
+      expect(parsed.reasoning_effort).toBe(reasoning_effort);
+    }
+  });
+
+  it("accepts current Chat image URL and file content variants", () => {
+    const messages = [
+      [
+        { type: "text", text: "describe" },
+        {
+          type: "image_url",
+          image_url: { url: "https://example.com/image.png", detail: "low" },
+        },
+      ],
+      [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } }],
+      [{ type: "file", file_id: "file-api-abc123" }],
+      [
+        {
+          type: "file",
+          file_data: "data:image/webp;base64,UklGRg==",
+          filename: "image.webp",
+        },
+      ],
+    ];
+
+    for (const message of messages) {
+      expect(chatCompletionToolInputSchema.safeParse({ message }).success).toBe(true);
+    }
+  });
+
+  it("rejects malformed Chat image and file content across shortcut and history inputs", () => {
+    const invalidContentParts = [
+      { type: "image_url", image_url: {} },
+      { type: "image_url", image_url: { url: "ftp://example.com/image.png" } },
+      { type: "image_url", image_url: { url: "data:image/svg+xml;base64,PHN2Zz4=" } },
+      { type: "file" },
+      { type: "file", file_id: "file-api-a", file_data: "data:image/png;base64,aQ==" },
+      { type: "file", file_id: "not-a-deepseek-file" },
+      { type: "file", file_id: "file-api-a", filename: "not-allowed.png" },
+    ];
+
+    for (const contentPart of invalidContentParts) {
+      expect(chatCompletionToolInputSchema.safeParse({ message: [contentPart] }).success).toBe(false);
+    }
+
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        messages: [{ role: "assistant", content: [{ type: "image_url", image_url: { url: "https://example.com/a.png" } }] }],
+      }).success,
+    ).toBe(false);
   });
 
   it("requires logprobs=true when top_logprobs is set", () => {
@@ -96,7 +160,14 @@ describe("tool input schemas", () => {
       { role: "user", content: "hello" },
       {
         role: "user",
-        content: [{ type: "input_text", text: "hello" }],
+        content: [
+          { type: "input_text", text: "hello" },
+          { type: "input_image", image_url: "https://example.com/a.png", detail: "original" },
+        ],
+      },
+      {
+        role: "developer",
+        content: [{ type: "input_image", file_id: "file-api-image1" }],
       },
       {
         role: "assistant",
@@ -111,7 +182,21 @@ describe("tool input schemas", () => {
       {
         type: "function_call_output",
         call_id: "call-1",
-        output: "result",
+        output: [
+          { type: "input_text", text: "result" },
+          { type: "input_image", file_id: "file-api-tool1" },
+        ],
+      },
+      {
+        type: "custom_tool_call",
+        call_id: "custom-1",
+        name: "apply_patch",
+        input: "*** Begin Patch",
+      },
+      {
+        type: "custom_tool_call_output",
+        call_id: "custom-1",
+        output: "Done!",
       },
       {
         type: "reasoning",
@@ -132,11 +217,60 @@ describe("tool input schemas", () => {
       { type: "reasoning" },
       { role: "user", content: [{}] },
       { role: "user", content: [{ type: "input_text" }] },
+      { role: "system", content: [{ type: "input_image", file_id: "file-api-a" }] },
+      { role: "assistant", content: [{ type: "input_image", file_id: "file-api-a" }] },
+      { role: "user", content: [{ type: "input_image" }] },
+      {
+        role: "user",
+        content: [{ type: "input_image", file_id: "file-api-a", image_url: "https://example.com/a.png" }],
+      },
+      { type: "custom_tool_call", call_id: "custom-1", name: "apply_patch" },
+      { type: "custom_tool_call_output", call_id: "custom-1" },
       { type: "reasoning", content: [{ type: "input_text", text: "wrong variant" }] },
     ];
 
     for (const item of invalidItems) {
       expect(responseToolInputSchema.safeParse({ input: [item] }).success).toBe(false);
     }
+  });
+
+  it("validates Files API upload, listing, and identifier boundaries", () => {
+    expect(
+      uploadFileToolInputSchema.safeParse({
+        filename: "pixel.png",
+        file_data: "iVBORw0KGgo=",
+        expires_after_seconds: 3600,
+      }).success,
+    ).toBe(true);
+    expect(
+      uploadFileToolInputSchema.safeParse({
+        filename: "pixel.gif",
+        file_data: "data:image/gif;base64,R0lGODlh",
+        expires_after_seconds: 2592000,
+      }).success,
+    ).toBe(true);
+
+    const invalidUploads = [
+      { filename: "pixel.png", file_data: "not base64!" },
+      { filename: "vector.svg", file_data: "data:image/svg+xml;base64,PHN2Zz4=" },
+      { filename: "pixel.png", file_data: "iVBORw0KGgo=", expires_after_seconds: 3599 },
+      { filename: "pixel.png", file_data: "iVBORw0KGgo=", expires_after_seconds: 2592001 },
+    ];
+    for (const input of invalidUploads) {
+      expect(uploadFileToolInputSchema.safeParse(input).success).toBe(false);
+    }
+
+    expect(
+      listFilesToolInputSchema.safeParse({
+        after: "file-api-a",
+        limit: 1000,
+        order: "desc",
+        purpose: "user_data",
+      }).success,
+    ).toBe(true);
+    expect(listFilesToolInputSchema.safeParse({ limit: 0 }).success).toBe(false);
+    expect(listFilesToolInputSchema.safeParse({ limit: 1001 }).success).toBe(false);
+    expect(fileIdToolInputSchema.safeParse({ file_id: "file-api-abc_123" }).success).toBe(true);
+    expect(fileIdToolInputSchema.safeParse({ file_id: "file-abc" }).success).toBe(false);
   });
 });
