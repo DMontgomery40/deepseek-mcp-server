@@ -1,5 +1,6 @@
 node_modules/
 build/
+.worktrees/
 .env
 *.log
 .DS_Store
