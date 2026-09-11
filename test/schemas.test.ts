@@ -43,6 +43,10 @@ describe("tool input schemas", () => {
       expect(parsed.model).toBe("deepseek-flash");
       expect(parsed.reasoning_effort).toBe(reasoning_effort);
     }
+
+    expect(completionToolInputSchema.parse({ prompt: "const value =" }).model).toBe(
+      "deepseek-flash",
+    );
   });
 
   it("accepts current Chat image URL and file content variants", () => {

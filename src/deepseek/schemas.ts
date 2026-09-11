@@ -350,7 +350,7 @@ export const chatCompletionToolInputSchema = z
   });
 
 export const completionToolInputSchema = z.object({
-  model: z.string().default("deepseek-v4-pro"),
+  model: z.string().default("deepseek-flash"),
   prompt: z.string().min(1),
   suffix: z.string().optional(),
   max_tokens: z.number().int().positive().optional(),

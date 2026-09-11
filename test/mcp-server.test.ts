@@ -14,12 +14,24 @@ interface Harness {
     createChatCompletion: ReturnType<typeof vi.fn>;
     createCompletion: ReturnType<typeof vi.fn>;
     createResponse: ReturnType<typeof vi.fn>;
+    uploadFile: ReturnType<typeof vi.fn>;
+    listFiles: ReturnType<typeof vi.fn>;
+    retrieveFile: ReturnType<typeof vi.fn>;
+    deleteFile: ReturnType<typeof vi.fn>;
     listModels: ReturnType<typeof vi.fn>;
     getUserBalance: ReturnType<typeof vi.fn>;
   };
 }
 
-async function createHarness(defaultModel = "deepseek-v4-flash"): Promise<Harness> {
+async function createHarness(defaultModel = "deepseek-flash"): Promise<Harness> {
+  const file = {
+    id: "file-api-test1",
+    object: "file",
+    bytes: 8,
+    created_at: 10,
+    filename: "pixel.png",
+    purpose: "user_data",
+  };
   const api = {
     createChatCompletion: vi.fn(async (request) => ({
       response: {
@@ -78,10 +90,24 @@ async function createHarness(defaultModel = "deepseek-v4-flash"): Promise<Harnes
         },
       },
     })),
+    uploadFile: vi.fn(async () => file),
+    listFiles: vi.fn(async () => ({
+      object: "list",
+      data: [file],
+      first_id: file.id,
+      last_id: file.id,
+      has_more: false,
+    })),
+    retrieveFile: vi.fn(async () => file),
+    deleteFile: vi.fn(async () => ({
+      id: file.id,
+      object: "file",
+      deleted: true,
+    })),
     listModels: vi.fn(async () => ({
       object: "list",
       data: [
-        { id: "deepseek-v4-flash", object: "model" },
+        { id: "deepseek-flash", object: "model" },
         { id: "deepseek-v4-pro", object: "model" },
       ],
     })),
@@ -140,15 +166,38 @@ describe("createDeepSeekMcpServer", () => {
         "chat_completion",
         "completion",
         "create_response",
+        "delete_file",
         "get_user_balance",
         "list_conversations",
+        "list_files",
         "list_models",
         "reset_conversation",
+        "retrieve_file",
+        "upload_file",
       ]);
 
-      expect(toolsByName.get("list_models")?.inputSchema).toMatchObject({ type: "object" });
-      expect(toolsByName.get("get_user_balance")?.inputSchema).toMatchObject({ type: "object" });
-      expect(toolsByName.get("list_conversations")?.inputSchema).toMatchObject({ type: "object" });
+      for (const tool of tools.tools) {
+        expect(tool.inputSchema).toMatchObject({ type: "object" });
+        expect(tool.outputSchema).toMatchObject({ type: "object" });
+      }
+
+      expect(toolsByName.get("list_files")?.annotations).toMatchObject({
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      });
+      expect(toolsByName.get("delete_file")?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      });
+      expect(toolsByName.get("reset_conversation")?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
     } finally {
       await harness.serverClose();
     }
@@ -276,6 +325,98 @@ describe("createDeepSeekMcpServer", () => {
     }
   });
 
+  it("forwards multimodal Chat and Responses inputs without rewriting image parts", async () => {
+    const harness = await createHarness();
+    const chatMessage = [
+      { type: "text", text: "describe" },
+      { type: "image_url", image_url: { url: "https://example.com/a.png", detail: "low" } },
+    ];
+    const responseInput = [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "describe" },
+          { type: "input_image", file_id: "file-api-test1" },
+        ],
+      },
+    ];
+
+    try {
+      const chat = await harness.client.callTool({
+        name: "chat_completion",
+        arguments: { message: chatMessage },
+      });
+      const response = await harness.client.callTool({
+        name: "create_response",
+        arguments: { input: responseInput },
+      });
+
+      expect(chat.isError).toBeFalsy();
+      expect(response.isError).toBeFalsy();
+      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject({
+        model: "deepseek-flash",
+        messages: [{ role: "user", content: chatMessage }],
+      });
+      expect(harness.api.createResponse.mock.calls[0]?.[0]).toMatchObject({
+        model: "deepseek-flash",
+        input: responseInput,
+      });
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("does not let extra_body replace validated top-level generation fields", async () => {
+    const harness = await createHarness();
+
+    try {
+      await harness.client.callTool({
+        name: "chat_completion",
+        arguments: {
+          message: "safe chat",
+          model: "deepseek-flash",
+          extra_body: {
+            model: "attacker-model",
+            messages: [{ role: "user", content: "replaced" }],
+            future_parameter: "kept",
+          },
+        },
+      });
+      await harness.client.callTool({
+        name: "create_response",
+        arguments: {
+          input: "safe response",
+          model: "deepseek-flash",
+          extra_body: { model: "attacker-model", input: "replaced" },
+        },
+      });
+      await harness.client.callTool({
+        name: "completion",
+        arguments: {
+          prompt: "safe completion",
+          model: "deepseek-v4-pro",
+          extra_body: { model: "attacker-model", prompt: "replaced" },
+        },
+      });
+
+      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject({
+        model: "deepseek-flash",
+        messages: [{ role: "user", content: "safe chat" }],
+        future_parameter: "kept",
+      });
+      expect(harness.api.createResponse.mock.calls[0]?.[0]).toMatchObject({
+        model: "deepseek-flash",
+        input: "safe response",
+      });
+      expect(harness.api.createCompletion.mock.calls[0]?.[0]).toMatchObject({
+        model: "deepseek-v4-pro",
+        prompt: "safe completion",
+      });
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
   it("forwards Responses API inputs and keeps the raw payload opt-in", async () => {
     const harness = await createHarness();
 
@@ -396,6 +537,67 @@ describe("createDeepSeekMcpServer", () => {
       const balance = await harness.client.callTool({ name: "get_user_balance", arguments: {} });
       expect(balance.isError).toBeFalsy();
       expect(harness.api.getUserBalance).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("uploads, lists, retrieves, and deletes DeepSeek files with structured results", async () => {
+    const harness = await createHarness();
+
+    try {
+      const upload = await harness.client.callTool({
+        name: "upload_file",
+        arguments: {
+          filename: "pixel.png",
+          file_data: "iVBORw0KGgo=",
+          expires_after_seconds: 3600,
+        },
+      });
+      const list = await harness.client.callTool({
+        name: "list_files",
+        arguments: { limit: 25, order: "desc", purpose: "user_data" },
+      });
+      const retrieve = await harness.client.callTool({
+        name: "retrieve_file",
+        arguments: { file_id: "file-api-test1" },
+      });
+      const remove = await harness.client.callTool({
+        name: "delete_file",
+        arguments: { file_id: "file-api-test1" },
+      });
+
+      expect(upload.isError).toBeFalsy();
+      expect(upload.content[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("file-api-test1"),
+      });
+      expect(upload.structuredContent).toMatchObject({
+        id: "file-api-test1",
+        filename: "pixel.png",
+      });
+      expect(list.structuredContent).toMatchObject({
+        data: [{ id: "file-api-test1" }],
+        has_more: false,
+      });
+      expect(retrieve.structuredContent).toMatchObject({ id: "file-api-test1" });
+      expect(remove.structuredContent).toEqual({
+        id: "file-api-test1",
+        object: "file",
+        deleted: true,
+      });
+      expect(harness.api.uploadFile).toHaveBeenCalledWith({
+        filename: "pixel.png",
+        fileData: "iVBORw0KGgo=",
+        expiresAfterSeconds: 3600,
+      });
+      expect(harness.api.listFiles).toHaveBeenCalledWith({
+        limit: 25,
+        order: "desc",
+        purpose: "user_data",
+      });
+      expect(harness.api.retrieveFile).toHaveBeenCalledWith("file-api-test1");
+      expect(harness.api.deleteFile).toHaveBeenCalledWith("file-api-test1");
     } finally {
       await harness.serverClose();
     }
