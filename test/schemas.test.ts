@@ -10,6 +10,161 @@ import {
 } from "../src/deepseek/schemas.js";
 
 describe("tool input schemas", () => {
+  it("rejects invalid and duplicate Chat tool names and mixed strict mode", () => {
+    const fn = (name: string, strict?: boolean) => ({
+      type: "function",
+      function: { name, strict },
+    });
+    for (const tools of [
+      [fn("bad name")],
+      [fn("x".repeat(129))],
+      [fn("same"), fn("same")],
+      [fn("first", true), fn("second", false)],
+    ]) {
+      expect(
+        chatCompletionToolInputSchema.safeParse({ message: "hi", tools })
+          .success,
+      ).toBe(false);
+    }
+  });
+
+  it("rejects forced Chat tool choices in thinking mode and misplaced prefixes", () => {
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: "hi",
+        tool_choice: "required",
+      }).success,
+    ).toBe(false);
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: "hi",
+        tool_choice: "required",
+        reasoning_effort: "none",
+      }).success,
+    ).toBe(true);
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        messages: [{ role: "user", content: "hi", prefix: true }],
+      }).success,
+    ).toBe(false);
+  });
+  it("rejects inline base64 above 32 MiB for Chat and Responses", () => {
+    const data = "data:image/png;base64," + "A".repeat(44_739_244);
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: [{ type: "file", file_data: data }],
+      }).success,
+    ).toBe(false);
+    expect(
+      responseToolInputSchema.safeParse({
+        input: [
+          { role: "user", content: [{ type: "input_image", image_url: data }] },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+  it("accepts optional Responses reasoning effort and summary compatibility fields", () => {
+    expect(
+      responseToolInputSchema.safeParse({ input: "hi", reasoning: {} }).success,
+    ).toBe(true);
+    expect(
+      responseToolInputSchema.safeParse({
+        input: "hi",
+        reasoning: { summary: "auto" },
+      }).success,
+    ).toBe(true);
+  });
+  it("accepts the ultra compatibility effort from the thinking guide", () => {
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: "hi",
+        reasoning_effort: "ultra",
+      }).success,
+    ).toBe(true);
+    expect(
+      responseToolInputSchema.safeParse({
+        input: "hi",
+        reasoning: { effort: "ultra" },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("enforces documented Chat token and sampling bounds", () => {
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: "hi",
+        max_tokens: 393216,
+      }).success,
+    ).toBe(true);
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: "hi",
+        max_tokens: 393217,
+      }).success,
+    ).toBe(false);
+    for (const schema of [
+      chatCompletionToolInputSchema,
+      completionToolInputSchema,
+      responseToolInputSchema,
+    ]) {
+      expect(
+        schema.safeParse({ message: "hi", prompt: "hi", input: "hi", top_p: 0 })
+          .success,
+      ).toBe(false);
+    }
+  });
+  it("rejects FIM echo conflicts and usage options without streaming", () => {
+    for (const args of [
+      { echo: true, suffix: "" },
+      { echo: true, logprobs: 0 },
+      { stream_options: { include_usage: true } },
+    ]) {
+      expect(
+        completionToolInputSchema.safeParse({ prompt: "x", ...args }).success,
+      ).toBe(false);
+    }
+    expect(
+      completionToolInputSchema.safeParse({
+        prompt: "x",
+        stream: true,
+        stream_options: { include_usage: true },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts the documented Responses apply_patch custom tool", () => {
+    expect(
+      responseToolInputSchema.safeParse({
+        input: "Fix this",
+        tools: [
+          { type: "custom", name: "apply_patch", description: "Apply a patch" },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      responseToolInputSchema.safeParse({
+        input: "Fix this",
+        tools: [{ type: "custom", name: "shell" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires stream=true when chat stream_options is supplied", () => {
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: "hi",
+        stream_options: { include_usage: true },
+      }).success,
+    ).toBe(false);
+    expect(
+      chatCompletionToolInputSchema.safeParse({
+        message: "hi",
+        stream: true,
+        stream_options: { include_usage: true },
+      }).success,
+    ).toBe(true);
+  });
+
   it("accepts current V4 chat parameters and pass-through extra_body", () => {
     const parsed = chatCompletionToolInputSchema.parse({
       message: "hello",
@@ -31,8 +186,16 @@ describe("tool input schemas", () => {
     expect(parsed.extra_body?.future_parameter).toBe("supported");
   });
 
-  it("defaults chat requests to deepseek-flash and accepts every current reasoning effort", () => {
-    const efforts = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+  it("leaves model selection to runtime configuration and accepts current reasoning efforts", () => {
+    const efforts = [
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ] as const;
 
     for (const reasoning_effort of efforts) {
       const parsed = chatCompletionToolInputSchema.parse({
@@ -40,13 +203,13 @@ describe("tool input schemas", () => {
         reasoning_effort,
       });
 
-      expect(parsed.model).toBe("deepseek-flash");
+      expect(parsed.model).toBeUndefined();
       expect(parsed.reasoning_effort).toBe(reasoning_effort);
     }
 
-    expect(completionToolInputSchema.parse({ prompt: "const value =" }).model).toBe(
-      "deepseek-flash",
-    );
+    expect(
+      completionToolInputSchema.parse({ prompt: "const value =" }).model,
+    ).toBeUndefined();
   });
 
   it("accepts current Chat image URL and file content variants", () => {
@@ -58,7 +221,12 @@ describe("tool input schemas", () => {
           image_url: { url: "https://example.com/image.png", detail: "low" },
         },
       ],
-      [{ type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } }],
+      [
+        {
+          type: "image_url",
+          image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+        },
+      ],
       [{ type: "file", file_id: "file-api-abc123" }],
       [
         {
@@ -70,7 +238,9 @@ describe("tool input schemas", () => {
     ];
 
     for (const message of messages) {
-      expect(chatCompletionToolInputSchema.safeParse({ message }).success).toBe(true);
+      expect(chatCompletionToolInputSchema.safeParse({ message }).success).toBe(
+        true,
+      );
     }
   });
 
@@ -78,20 +248,40 @@ describe("tool input schemas", () => {
     const invalidContentParts = [
       { type: "image_url", image_url: {} },
       { type: "image_url", image_url: { url: "ftp://example.com/image.png" } },
-      { type: "image_url", image_url: { url: "data:image/svg+xml;base64,PHN2Zz4=" } },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/svg+xml;base64,PHN2Zz4=" },
+      },
       { type: "file" },
-      { type: "file", file_id: "file-api-a", file_data: "data:image/png;base64,aQ==" },
+      {
+        type: "file",
+        file_id: "file-api-a",
+        file_data: "data:image/png;base64,aQ==",
+      },
       { type: "file", file_id: "not-a-deepseek-file" },
       { type: "file", file_id: "file-api-a", filename: "not-allowed.png" },
     ];
 
     for (const contentPart of invalidContentParts) {
-      expect(chatCompletionToolInputSchema.safeParse({ message: [contentPart] }).success).toBe(false);
+      expect(
+        chatCompletionToolInputSchema.safeParse({ message: [contentPart] })
+          .success,
+      ).toBe(false);
     }
 
     expect(
       chatCompletionToolInputSchema.safeParse({
-        messages: [{ role: "assistant", content: [{ type: "image_url", image_url: { url: "https://example.com/a.png" } }] }],
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: "https://example.com/a.png" },
+              },
+            ],
+          },
+        ],
       }).success,
     ).toBe(false);
   });
@@ -166,7 +356,11 @@ describe("tool input schemas", () => {
         role: "user",
         content: [
           { type: "input_text", text: "hello" },
-          { type: "input_image", image_url: "https://example.com/a.png", detail: "original" },
+          {
+            type: "input_image",
+            image_url: "https://example.com/a.png",
+            detail: "original",
+          },
         ],
       },
       {
@@ -181,7 +375,7 @@ describe("tool input schemas", () => {
         type: "function_call",
         call_id: "call-1",
         name: "lookup",
-        arguments: "{\"id\":1}",
+        arguments: '{"id":1}',
       },
       {
         type: "function_call_output",
@@ -210,7 +404,9 @@ describe("tool input schemas", () => {
     ];
 
     for (const item of validItems) {
-      expect(responseToolInputSchema.safeParse({ input: [item] }).success).toBe(true);
+      expect(responseToolInputSchema.safeParse({ input: [item] }).success).toBe(
+        true,
+      );
     }
 
     const invalidItems = [
@@ -221,20 +417,37 @@ describe("tool input schemas", () => {
       { type: "reasoning" },
       { role: "user", content: [{}] },
       { role: "user", content: [{ type: "input_text" }] },
-      { role: "system", content: [{ type: "input_image", file_id: "file-api-a" }] },
-      { role: "assistant", content: [{ type: "input_image", file_id: "file-api-a" }] },
+      {
+        role: "system",
+        content: [{ type: "input_image", file_id: "file-api-a" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "input_image", file_id: "file-api-a" }],
+      },
       { role: "user", content: [{ type: "input_image" }] },
       {
         role: "user",
-        content: [{ type: "input_image", file_id: "file-api-a", image_url: "https://example.com/a.png" }],
+        content: [
+          {
+            type: "input_image",
+            file_id: "file-api-a",
+            image_url: "https://example.com/a.png",
+          },
+        ],
       },
       { type: "custom_tool_call", call_id: "custom-1", name: "apply_patch" },
       { type: "custom_tool_call_output", call_id: "custom-1" },
-      { type: "reasoning", content: [{ type: "input_text", text: "wrong variant" }] },
+      {
+        type: "reasoning",
+        content: [{ type: "input_text", text: "wrong variant" }],
+      },
     ];
 
     for (const item of invalidItems) {
-      expect(responseToolInputSchema.safeParse({ input: [item] }).success).toBe(false);
+      expect(responseToolInputSchema.safeParse({ input: [item] }).success).toBe(
+        false,
+      );
     }
   });
 
@@ -256,9 +469,20 @@ describe("tool input schemas", () => {
 
     const invalidUploads = [
       { filename: "pixel.png", file_data: "not base64!" },
-      { filename: "vector.svg", file_data: "data:image/svg+xml;base64,PHN2Zz4=" },
-      { filename: "pixel.png", file_data: "iVBORw0KGgo=", expires_after_seconds: 3599 },
-      { filename: "pixel.png", file_data: "iVBORw0KGgo=", expires_after_seconds: 2592001 },
+      {
+        filename: "vector.svg",
+        file_data: "data:image/svg+xml;base64,PHN2Zz4=",
+      },
+      {
+        filename: "pixel.png",
+        file_data: "iVBORw0KGgo=",
+        expires_after_seconds: 3599,
+      },
+      {
+        filename: "pixel.png",
+        file_data: "iVBORw0KGgo=",
+        expires_after_seconds: 2592001,
+      },
     ];
     for (const input of invalidUploads) {
       expect(uploadFileToolInputSchema.safeParse(input).success).toBe(false);
@@ -272,9 +496,17 @@ describe("tool input schemas", () => {
         purpose: "user_data",
       }).success,
     ).toBe(true);
-    expect(listFilesToolInputSchema.safeParse({ limit: 0 }).success).toBe(false);
-    expect(listFilesToolInputSchema.safeParse({ limit: 1001 }).success).toBe(false);
-    expect(fileIdToolInputSchema.safeParse({ file_id: "file-api-abc_123" }).success).toBe(true);
-    expect(fileIdToolInputSchema.safeParse({ file_id: "file-abc" }).success).toBe(false);
+    expect(listFilesToolInputSchema.safeParse({ limit: 0 }).success).toBe(
+      false,
+    );
+    expect(listFilesToolInputSchema.safeParse({ limit: 1001 }).success).toBe(
+      false,
+    );
+    expect(
+      fileIdToolInputSchema.safeParse({ file_id: "file-api-abc_123" }).success,
+    ).toBe(true);
+    expect(
+      fileIdToolInputSchema.safeParse({ file_id: "file-abc" }).success,
+    ).toBe(false);
   });
 });

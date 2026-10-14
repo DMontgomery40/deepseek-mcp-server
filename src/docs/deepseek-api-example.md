@@ -16,8 +16,8 @@ Temporary compatibility aliases:
 - `deepseek-v4-flash`
 - `deepseek-v4-flash-vision-exp`
 
-DeepSeek announced that `deepseek-v4-pro` will begin serving V4.1 Flash on
-September 14, 2026 until V4.1 Pro is released.
+Checked October 13, 2026: `deepseek-v4-pro` continues serving V4 Pro 0813.
+DeepSeek reversed its announced September rerouting plan. Vision is Flash-only.
 
 ## Chat
 
@@ -149,3 +149,39 @@ POST https://api.deepseek.com/beta/completions
 - `list_conversations`
 
 This server supports MCP 2026-07-28 and stateless legacy clients.
+
+## Current API constraints
+
+Canonical reasoning efforts: none, low, high, max. Aliases: minimal maps to low;
+medium and xhigh map to high. DeepSeek ignores frequency/presence penalties.
+Chat and FIM stream_options require stream=true. FIM echo=true cannot accompany
+suffix or logprobs. Prefix and strict Chat requests automatically use the beta
+route. Request timeouts include response bodies and streamed output.
+
+Responses built-in tools, including web search, are ignored by DeepSeek.
+The supported custom tool is {"type":"custom","name":"apply_patch"}.
+The MCP result returns custom_tool_calls without requiring raw_response; the
+client executes these calls and supplies custom_tool_call_output history.
+
+Sources:
+https://api-docs.deepseek.com/updates/
+https://api-docs.deepseek.com/guides/responses_api/
+https://api-docs.deepseek.com/api/create-completion/
+
+## Full-audit release behavior
+
+The thinking guide accepts ultra as a compatibility alias of max. Model discovery
+includes names, context/output limits, modalities, effort levels, and API capabilities.
+Responses output_items preserves complete returned items for full-history replay.
+Inline images: 32 MiB each; JSON bodies: 48 MiB; max images/request: 600.
+Files images: 64 MiB each. DeepSeek validates remote/file dimensions and total
+image bytes (64 MiB without file IDs, 200 MiB with file IDs).
+Uploads may take up to 10 minutes; increase the request timeout for large files.
+
+MCP_TOOL_RATE_LIMIT=120 limits tool invocations per 60-second window.
+MCP_HTTP_AUTH_TOKEN protects HTTP with a shared bearer token. Non-loopback
+binds require this token or explicit MCP_HTTP_TRUST_AUTH_GATEWAY=true behind
+a gateway that authenticates every request. Origin validation is separate.
+Cancellation stops provider work and cancelled replies do not update history.
+Missing conversation resources return -32602; list-change notifications are
+not advertised. CONVERSATION_MAX_MESSAGES is a per-conversation bound.

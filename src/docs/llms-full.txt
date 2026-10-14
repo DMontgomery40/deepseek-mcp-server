@@ -1,4 +1,4 @@
-# deepseek-mcp-server 1.0.1
+# deepseek-mcp-server 1.4.0
 
 Repository: https://github.com/DMontgomery40/deepseek-mcp-server
 MCP registry name: io.github.DMontgomery40/deepseek
@@ -7,7 +7,7 @@ Runtime: Node.js 20+, TypeScript ESM
 
 ## Purpose
 
-This package is an MCP server for DeepSeek V4.1 Flash. The default model is
+This package is an MCP server for DeepSeek V4.1 Flash and V4 Pro. The default model is
 deepseek-flash. It supports text and visual input, Chat Completions, Responses,
 FIM completion, the Files API, model listing, balance checks, and bounded
 process-local conversation memory.
@@ -15,12 +15,12 @@ process-local conversation memory.
 Multimodal support is visual input only. The server does not generate images,
 video, or audio.
 
-## DeepSeek model state on 2026-09-10
+## DeepSeek model state on 2026-10-13
 
 - deepseek-flash is the canonical V4.1 Flash model.
 - deepseek-v4-flash and deepseek-v4-flash-vision-exp are temporary aliases.
-- DeepSeek announced that deepseek-v4-pro will begin serving V4.1 Flash on
-  2026-09-14 until V4.1 Pro is released.
+- deepseek-v4-pro continues serving V4 Pro 0813; its planned rerouting was reversed.
+- Vision input is supported by Flash only.
 - DeepSeek documents 1M context and up to 384K output for deepseek-flash.
 
 Always prefer live list_models output when model availability matters.
@@ -49,8 +49,8 @@ chat_completion
 
 create_response
   Stateless DeepSeek Responses call. Accepts text and input_image parts using
-  image_url or file_id. Supports reasoning, function and custom tools, web
-  search, structured output, and semantic stream aggregation.
+  image_url or file_id. Supports reasoning, function tools, the apply_patch
+  custom tool, structured output, and semantic stream aggregation.
 
 completion
   FIM completion through /beta/completions.
@@ -156,3 +156,39 @@ https://api-docs.deepseek.com/api/create-chat-completion/
 https://api-docs.deepseek.com/api/create-response/
 https://modelcontextprotocol.io/specification/2026-07-28
 https://github.com/modelcontextprotocol/typescript-sdk
+
+## Current API constraints
+
+Canonical reasoning efforts: none, low, high, max. Aliases: minimal maps to low;
+medium and xhigh map to high. DeepSeek ignores frequency/presence penalties.
+Chat and FIM stream_options require stream=true. FIM echo=true cannot accompany
+suffix or logprobs. Prefix and strict Chat requests automatically use the beta
+route. Request timeouts include response bodies and streamed output.
+
+Responses built-in tools, including web search, are ignored by DeepSeek.
+The supported custom tool is {"type":"custom","name":"apply_patch"}.
+The MCP result returns custom_tool_calls without requiring raw_response; the
+client executes these calls and supplies custom_tool_call_output history.
+
+Sources:
+https://api-docs.deepseek.com/updates/
+https://api-docs.deepseek.com/guides/responses_api/
+https://api-docs.deepseek.com/api/create-completion/
+
+## Full-audit release behavior
+
+The thinking guide accepts ultra as a compatibility alias of max. Model discovery
+includes names, context/output limits, modalities, effort levels, and API capabilities.
+Responses output_items preserves complete returned items for full-history replay.
+Inline images: 32 MiB each; JSON bodies: 48 MiB; max images/request: 600.
+Files images: 64 MiB each. DeepSeek validates remote/file dimensions and total
+image bytes (64 MiB without file IDs, 200 MiB with file IDs).
+Uploads may take up to 10 minutes; increase the request timeout for large files.
+
+MCP_TOOL_RATE_LIMIT=120 limits tool invocations per 60-second window.
+MCP_HTTP_AUTH_TOKEN protects HTTP with a shared bearer token. Non-loopback
+binds require this token or explicit MCP_HTTP_TRUST_AUTH_GATEWAY=true behind
+a gateway that authenticates every request. Origin validation is separate.
+Cancellation stops provider work and cancelled replies do not update history.
+Missing conversation resources return -32602; list-change notifications are
+not advertised. CONVERSATION_MAX_MESSAGES is a per-conversation bound.

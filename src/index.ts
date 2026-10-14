@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import dotenv from "dotenv";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
@@ -27,6 +27,7 @@ async function main(): Promise<void> {
       client,
       conversations,
       defaultModel: config.defaultModel,
+      toolRateLimit: config.toolRateLimit,
     });
 
   if (config.transport === "stdio") {
@@ -46,6 +47,8 @@ async function main(): Promise<void> {
     port: config.httpPort,
     path: config.httpPath,
     allowedOrigins: config.httpAllowedOrigins,
+    authToken: config.httpAuthToken,
+    trustAuthGateway: config.httpTrustAuthGateway,
   });
 
   console.error(

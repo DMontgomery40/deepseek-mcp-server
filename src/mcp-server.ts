@@ -1,4 +1,10 @@
-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  ResourceTemplate,
+  ResourceNotFoundError,
+  type ServerContext,
+  type CallToolResult,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import { ConversationStore } from "./conversation-store.js";
@@ -9,6 +15,7 @@ import {
   FileIdToolInput,
   ListFilesToolInput,
   ResponseToolInput,
+  ResetConversationToolInput,
   UploadFileToolInput,
   chatCompletionToolInputSchema,
   completionToolInputSchema,
@@ -32,6 +39,7 @@ export interface DeepSeekMcpServerOptions {
   conversations: ConversationStore;
   defaultModel: string;
   version?: string;
+  toolRateLimit?: number;
 }
 
 const ENDPOINT_MATRIX = [
@@ -39,13 +47,15 @@ const ENDPOINT_MATRIX = [
     endpoint: "/chat/completions",
     method: "POST",
     tool: "chat_completion",
-    description: "V4.1 Chat Completions API with text/images, thinking, tool calls, JSON output, and streaming",
+    description:
+      "V4.1 Chat Completions API with text/images, thinking, tool calls, JSON output, and streaming",
   },
   {
     endpoint: "/responses",
     method: "POST",
     tool: "create_response",
-    description: "Native V4.1 Responses API with text/images, reasoning, function tools, web search, and streaming",
+    description:
+      "Native V4.1 Responses API with text/images, reasoning, function/custom tools and streaming",
   },
   {
     endpoint: "/beta/completions",
@@ -91,8 +101,16 @@ const ENDPOINT_MATRIX = [
   },
 ] as const;
 
-const SERVER_VERSION = "1.0.1";
-const RETRYABLE_DEEPSEEK_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
+const SERVER_VERSION = "1.4.0";
+// The HTTP factory creates a server per request. Share admission budgets by
+// provider client so recreating an MCP server cannot reset its tool limit.
+const toolBudgets = new WeakMap<
+  DeepSeekApiClient,
+  { used: number; startedAt: number }
+>();
+const RETRYABLE_DEEPSEEK_STATUS_CODES = new Set([
+  408, 409, 429, 500, 502, 503, 504,
+]);
 const RETRYABLE_RESPONSE_ERROR_CODES = new Set([
   "rate_limit_exceeded",
   "server_error",
@@ -152,6 +170,8 @@ const responseOutputSchema = z
     output_text: z.string(),
     reasoning_text: z.string().nullable(),
     function_calls: z.array(z.record(z.string(), z.unknown())),
+    custom_tool_calls: z.array(z.record(z.string(), z.unknown())),
+    output_items: z.array(z.record(z.string(), z.unknown())),
     usage: z.unknown().nullable(),
     error: z.unknown().nullable(),
     incomplete_details: z.unknown().nullable(),
@@ -177,6 +197,19 @@ const modelListOutputSchema = z
           object: z.string(),
           owned_by: z.string().optional(),
           created: z.number().optional(),
+          name: z.string().optional(),
+          context_window: z.number().int().optional(),
+          max_output_tokens: z.number().int().optional(),
+          input_modalities: z.array(z.string()).optional(),
+          output_modalities: z.array(z.string()).optional(),
+          effort: z
+            .object({
+              supported_levels: z.array(z.string()),
+              default_level: z.string().optional(),
+            })
+            .passthrough()
+            .optional(),
+          api_capabilities: z.record(z.string(), z.unknown()).optional(),
         })
         .passthrough(),
     ),
@@ -213,7 +246,10 @@ const fileMetadataSchema = z
   })
   .passthrough();
 
-const fileOutputSchema = fileMetadataSchema.partial().extend(errorOutputShape).passthrough();
+const fileOutputSchema = fileMetadataSchema
+  .partial()
+  .extend(errorOutputShape)
+  .passthrough();
 
 const fileListOutputSchema = z
   .object({
@@ -255,13 +291,16 @@ const listConversationsOutputSchema = z
   .extend(errorOutputShape)
   .passthrough();
 
-export function createDeepSeekMcpServer(options: DeepSeekMcpServerOptions): McpServer {
+export function createDeepSeekMcpServer(
+  options: DeepSeekMcpServerOptions,
+): McpServer {
   const server = new McpServer(
     {
       name: "deepseek-mcp-server",
       version: options.version ?? SERVER_VERSION,
     },
     {
+      capabilities: { resources: { listChanged: false } },
       cacheHints: {
         "tools/list": { ttlMs: 3_600_000, cacheScope: "public" },
         "prompts/list": { ttlMs: 3_600_000, cacheScope: "public" },
@@ -280,7 +319,10 @@ export function createDeepSeekMcpServer(options: DeepSeekMcpServerOptions): McpS
   return server;
 }
 
-function registerResources(server: McpServer, options: DeepSeekMcpServerOptions): void {
+function registerResources(
+  server: McpServer,
+  options: DeepSeekMcpServerOptions,
+): void {
   server.registerResource(
     "deepseek-api-endpoints",
     "deepseek://api/endpoints",
@@ -318,10 +360,14 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
               server_name: "deepseek-mcp-server",
               server_version: options.version ?? SERVER_VERSION,
               default_model: options.defaultModel,
-              current_models: ["deepseek-flash"],
-              legacy_model_aliases: ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
-              phasing_out_models: ["deepseek-v4-pro"],
-              conversation_count: options.conversations.listConversationIds().length,
+              current_models: ["deepseek-flash", "deepseek-v4-pro"],
+              legacy_model_aliases: [
+                "deepseek-v4-flash",
+                "deepseek-v4-flash-vision-exp",
+              ],
+              phasing_out_models: [],
+              conversation_count:
+                options.conversations.listConversationIds().length,
               supports_streaming: true,
               supports_thinking_mode: true,
               supports_vision: true,
@@ -343,8 +389,8 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
       mimeType: "application/json",
       cacheHint: { ttlMs: 30_000, cacheScope: "private" },
     },
-    async (uri) => {
-      const models = await options.client.listModels();
+    async (uri, context) => {
+      const models = await options.client.listModels(context.mcpReq.signal);
       return {
         contents: [
           {
@@ -357,15 +403,20 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
     },
   );
 
-  const conversationTemplate = new ResourceTemplate("deepseek://conversations/{conversationId}", {
-    list: async () => ({
-      resources: options.conversations.listConversationIds().map((conversationId) => ({
-        uri: `deepseek://conversations/${encodeURIComponent(conversationId)}`,
-        name: `Conversation ${conversationId}`,
-        description: "Persisted messages for chat_completion",
-      })),
-    }),
-  });
+  const conversationTemplate = new ResourceTemplate(
+    "deepseek://conversations/{conversationId}",
+    {
+      list: async () => ({
+        resources: options.conversations
+          .listConversationIds()
+          .map((conversationId) => ({
+            uri: `deepseek://conversations/${encodeURIComponent(conversationId)}`,
+            name: `Conversation ${conversationId}`,
+            description: "Persisted messages for chat_completion",
+          })),
+      }),
+    },
+  );
 
   server.registerResource(
     "deepseek-conversation",
@@ -379,7 +430,11 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
       const raw = variables.conversationId;
       const conversationId = Array.isArray(raw) ? raw[0] : String(raw ?? "");
 
-      const messages = options.conversations.get(decodeURIComponent(conversationId));
+      const decodedId = decodeURIComponent(conversationId);
+      if (!options.conversations.listConversationIds().includes(decodedId)) {
+        throw new ResourceNotFoundError(uri.href);
+      }
+      const messages = options.conversations.get(decodedId);
       return {
         contents: [
           {
@@ -401,11 +456,15 @@ function registerResources(server: McpServer, options: DeepSeekMcpServerOptions)
   );
 }
 
-function registerPrompts(server: McpServer, options: DeepSeekMcpServerOptions): void {
+function registerPrompts(
+  server: McpServer,
+  options: DeepSeekMcpServerOptions,
+): void {
   server.registerPrompt(
     "deepseek_chat_starter",
     {
-      description: "Create a reusable starter prompt for DeepSeek chat_completion",
+      description:
+        "Create a reusable starter prompt for DeepSeek chat_completion",
       argsSchema: {
         task: z.string().min(1),
         style: z.string().optional(),
@@ -435,12 +494,51 @@ function registerPrompts(server: McpServer, options: DeepSeekMcpServerOptions): 
   );
 }
 
-function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): void {
+function registerTools(
+  server: McpServer,
+  options: DeepSeekMcpServerOptions,
+): void {
+  const limit = options.toolRateLimit ?? 120;
+  const guard =
+    <TInput>(
+      handler: (
+        input: TInput,
+        context: ServerContext,
+      ) => Promise<CallToolResult>,
+    ) =>
+    async (input: TInput, context: ServerContext): Promise<CallToolResult> => {
+      context.mcpReq.signal.throwIfAborted();
+      const now = Date.now();
+      let budget = toolBudgets.get(options.client);
+      if (!budget || now - budget.startedAt >= 60_000) {
+        budget = { used: 0, startedAt: now };
+        toolBudgets.set(options.client, budget);
+      }
+      if (budget.used >= limit) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "MCP tool invocation rate limit reached; retry after the current minute window.",
+            },
+          ],
+          structuredContent: {
+            error_type: "tool_rate_limit",
+            status: 429,
+            retryable: true,
+            suggestion: "Retry after the current minute window.",
+          },
+        };
+      }
+      budget.used += 1;
+      return handler(input, context);
+    };
   server.registerTool(
     "chat_completion",
     {
       description:
-        "Primary DeepSeek V4.1 chat tool for text, images, and multi-turn generation. Defaults to `deepseek-flash`. Provide either `message` (a text string or text/image/file content parts) or `messages` (full chat history); if both are provided, `messages` is used. Images may use an HTTP(S) URL, supported base64 data URL, or Files API `file_id`. Thinking is enabled by default; use `reasoning_effort` for current effort controls. Use `conversation_id` for explicit in-memory context. Set `include_raw_response=true` only for provider-payload debugging.",
+        "Primary DeepSeek V4.1 chat tool for text, images, and multi-turn generation. Defaults to the configured model (`deepseek-flash` by default). Provide either `message` (a text string or text/image/file content parts) or `messages` (full chat history); if both are provided, `messages` is used. Images may use an HTTP(S) URL, supported base64 data URL, or Files API `file_id`. Thinking is enabled by default; use `reasoning_effort` for current effort controls. Use `conversation_id` for explicit in-memory context. Set `include_raw_response=true` only for provider-payload debugging.",
       inputSchema: chatCompletionToolInputSchema,
       outputSchema: chatOutputSchema,
       annotations: {
@@ -450,7 +548,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async (input) => {
+    guard(async (input: ChatCompletionToolInput, context) => {
       try {
         const normalizedInput = input as ChatCompletionToolInput;
 
@@ -460,11 +558,23 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         }
 
         const newMessages = normalizeInputMessages(normalizedInput);
-        const existingHistory = conversationId ? options.conversations.get(conversationId) : [];
-        const outboundMessages = conversationId ? [...existingHistory, ...newMessages] : newMessages;
+        const existingHistory = conversationId
+          ? options.conversations.get(conversationId)
+          : [];
+        const outboundMessages = conversationId
+          ? [...existingHistory, ...newMessages]
+          : newMessages;
 
-        const request = buildChatCompletionRequest(normalizedInput, outboundMessages, options.defaultModel);
-        const result = await options.client.createChatCompletion(request);
+        const request = buildChatCompletionRequest(
+          normalizedInput,
+          outboundMessages,
+          options.defaultModel,
+        );
+        const result = await options.client.createChatCompletion(
+          request,
+          context.mcpReq.signal,
+        );
+        context.mcpReq.signal.throwIfAborted();
 
         const choice = result.response.choices[0];
         const assistantMessage = choice?.message;
@@ -489,7 +599,10 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         const summary = [
           responseText || "(no assistant content returned)",
           reasoning ? "\nReasoning:\n" + reasoning : undefined,
-          toolCalls.length > 0 ? "\nTool calls returned by model: " + JSON.stringify(toolCalls, null, 2) : undefined,
+          toolCalls.length > 0
+            ? "\nTool calls returned by model: " +
+              JSON.stringify(toolCalls, null, 2)
+            : undefined,
         ]
           .filter(Boolean)
           .join("\n");
@@ -516,14 +629,14 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
     "completion",
     {
       description:
-        "DeepSeek FIM completion tool for prompt/suffix fill-in-the-middle workflows. Defaults to `deepseek-flash` in non-thinking mode. Use this when you need raw completion text instead of chat message formatting. Set `include_raw_response=true` only when you need the full provider payload for debugging.",
+        "DeepSeek FIM completion tool for prompt/suffix fill-in-the-middle workflows. Defaults to the configured model (`deepseek-flash` by default) in non-thinking mode. Use this when you need raw completion text instead of chat message formatting. Set `include_raw_response=true` only when you need the full provider payload for debugging.",
       inputSchema: completionToolInputSchema,
       outputSchema: completionOutputSchema,
       annotations: {
@@ -533,11 +646,17 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async (input) => {
+    guard(async (input: CompletionToolInput, context) => {
       try {
         const normalizedInput = input as CompletionToolInput;
-        const request = buildCompletionRequest(normalizedInput, options.defaultModel);
-        const result = await options.client.createCompletion(request);
+        const request = buildCompletionRequest(
+          normalizedInput,
+          options.defaultModel,
+        );
+        const result = await options.client.createCompletion(
+          request,
+          context.mcpReq.signal,
+        );
         const choice = result.response.choices[0];
         const includeRawResponse = normalizedInput.include_raw_response;
 
@@ -565,14 +684,14 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
     "create_response",
     {
       description:
-        "Create a stateless DeepSeek V4.1 response using the OpenAI-compatible Responses API. Defaults to `deepseek-flash` and accepts text, image URLs, base64 images, and Files API `file_id` inputs. Use `reasoning.effort` for thinking control, `tools` for function or server-side web-search tools, and `stream=true` for semantic SSE aggregation. Send full input history for multi-turn work. Set `include_raw_response=true` only for provider-payload debugging.",
+        "Create a stateless DeepSeek V4.1 response using the OpenAI-compatible Responses API. Defaults to the configured model (`deepseek-flash` by default) and accepts text, image URLs, base64 images, and Files API `file_id` inputs. Use `reasoning.effort` for thinking control, `tools` for functions or the `apply_patch` custom tool (built-in web search is ignored by DeepSeek), and `stream=true` for semantic SSE aggregation. Send full input history for multi-turn work. Set `include_raw_response=true` only for provider-payload debugging.",
       inputSchema: responseToolInputSchema,
       outputSchema: responseOutputSchema,
       annotations: {
@@ -582,20 +701,40 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async (input) => {
+    guard(async (input: ResponseToolInput, context) => {
       try {
         const normalizedInput = input as ResponseToolInput;
-        const request = buildResponseRequest(normalizedInput, options.defaultModel);
-        const result = await options.client.createResponse(request);
-        const outputText = collectResponseContent(result.response.output, "output_text");
-        const reasoningText = collectResponseContent(result.response.output, "reasoning_text");
-        const functionCalls = result.response.output.filter((item) => item.type === "function_call");
+        const request = buildResponseRequest(
+          normalizedInput,
+          options.defaultModel,
+        );
+        const result = await options.client.createResponse(
+          request,
+          context.mcpReq.signal,
+        );
+        const outputText = collectResponseContent(
+          result.response.output,
+          "output_text",
+        );
+        const reasoningText = collectResponseContent(
+          result.response.output,
+          "reasoning_text",
+        );
+        const functionCalls = result.response.output.filter(
+          (item) => item.type === "function_call",
+        );
+        const customToolCalls = result.response.output.filter(
+          (item) => item.type === "custom_tool_call",
+        );
         const responseFailed = result.response.status === "failed";
         const responseErrorMessage =
-          result.response.error && typeof result.response.error.message === "string"
+          result.response.error &&
+          typeof result.response.error.message === "string"
             ? result.response.error.message
             : "DeepSeek returned a failed response";
-        const responseRetryable = getResponseErrorRetryability(result.response.error);
+        const responseRetryable = getResponseErrorRetryability(
+          result.response.error,
+        );
 
         const summary = [
           responseFailed
@@ -604,6 +743,9 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
           reasoningText ? `\nReasoning:\n${reasoningText}` : undefined,
           functionCalls.length > 0
             ? `\nFunction calls returned by model: ${JSON.stringify(functionCalls, null, 2)}`
+            : undefined,
+          customToolCalls.length > 0
+            ? `\nCustom tool calls returned by model: ${JSON.stringify(customToolCalls, null, 2)}`
             : undefined,
         ]
           .filter(Boolean)
@@ -615,6 +757,8 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
           output_text: outputText,
           reasoning_text: reasoningText || null,
           function_calls: functionCalls,
+          custom_tool_calls: customToolCalls,
+          output_items: result.response.output,
           usage: result.response.usage ?? null,
           error: result.response.error ?? null,
           incomplete_details: result.response.incomplete_details ?? null,
@@ -642,7 +786,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
@@ -659,14 +803,16 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async () => {
+    guard(async (_input: z.infer<typeof emptyToolInputSchema>, context) => {
       try {
-        const models = await options.client.listModels();
+        const models = await options.client.listModels(context.mcpReq.signal);
         return {
           content: [
             {
               type: "text",
-              text: models.data.map((model) => model.id).join("\n") || "(no models returned)",
+              text:
+                models.data.map((model) => model.id).join("\n") ||
+                "(no models returned)",
             },
           ],
           structuredContent: models as unknown as Record<string, unknown>,
@@ -674,7 +820,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
@@ -691,9 +837,11 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async () => {
+    guard(async (_input: z.infer<typeof emptyToolInputSchema>, context) => {
       try {
-        const balance = await options.client.getUserBalance();
+        const balance = await options.client.getUserBalance(
+          context.mcpReq.signal,
+        );
         return {
           content: [
             {
@@ -706,7 +854,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
@@ -723,14 +871,17 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async (input) => {
+    guard(async (input: UploadFileToolInput, context) => {
       try {
         const normalizedInput = input as UploadFileToolInput;
-        const file = await options.client.uploadFile({
-          filename: normalizedInput.filename,
-          fileData: normalizedInput.file_data,
-          expiresAfterSeconds: normalizedInput.expires_after_seconds,
-        });
+        const file = await options.client.uploadFile(
+          {
+            filename: normalizedInput.filename,
+            fileData: normalizedInput.file_data,
+            expiresAfterSeconds: normalizedInput.expires_after_seconds,
+          },
+          context.mcpReq.signal,
+        );
         return {
           content: [
             {
@@ -743,7 +894,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
@@ -760,16 +911,24 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async (input) => {
+    guard(async (input: ListFilesToolInput, context) => {
       try {
-        const files = await options.client.listFiles(input as ListFilesToolInput);
+        const files = await options.client.listFiles(
+          input as ListFilesToolInput,
+          context.mcpReq.signal,
+        );
         return {
           content: [
             {
               type: "text",
               text:
                 files.data.length > 0
-                  ? files.data.map((file) => `${file.id}\t${file.filename}\t${file.bytes} bytes`).join("\n")
+                  ? files.data
+                      .map(
+                        (file) =>
+                          `${file.id}\t${file.filename}\t${file.bytes} bytes`,
+                      )
+                      .join("\n")
                   : "(no files returned)",
             },
           ],
@@ -778,13 +937,14 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
     "retrieve_file",
     {
-      description: "Retrieve metadata for one DeepSeek Files API image by `file_id`.",
+      description:
+        "Retrieve metadata for one DeepSeek Files API image by `file_id`.",
       inputSchema: fileIdToolInputSchema,
       outputSchema: fileOutputSchema,
       annotations: {
@@ -794,10 +954,13 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async (input) => {
+    guard(async (input: FileIdToolInput, context) => {
       try {
         const { file_id } = input as FileIdToolInput;
-        const file = await options.client.retrieveFile(file_id);
+        const file = await options.client.retrieveFile(
+          file_id,
+          context.mcpReq.signal,
+        );
         return {
           content: [{ type: "text", text: JSON.stringify(file, null, 2) }],
           structuredContent: file as unknown as Record<string, unknown>,
@@ -805,7 +968,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
@@ -822,15 +985,20 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: true,
       },
     },
-    async (input) => {
+    guard(async (input: FileIdToolInput, context) => {
       try {
         const { file_id } = input as FileIdToolInput;
-        const deleted = await options.client.deleteFile(file_id);
+        const deleted = await options.client.deleteFile(
+          file_id,
+          context.mcpReq.signal,
+        );
         return {
           content: [
             {
               type: "text",
-              text: deleted.deleted ? `Deleted ${deleted.id}.` : `${deleted.id} was not deleted.`,
+              text: deleted.deleted
+                ? `Deleted ${deleted.id}.`
+                : `${deleted.id} was not deleted.`,
             },
           ],
           structuredContent: deleted as unknown as Record<string, unknown>,
@@ -838,7 +1006,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
       } catch (error) {
         return makeToolErrorResult(error);
       }
-    },
+    }),
   );
 
   server.registerTool(
@@ -855,7 +1023,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: false,
       },
     },
-    async ({ conversation_id }) => {
+    guard(async ({ conversation_id }: ResetConversationToolInput) => {
       const deleted = options.conversations.clear(conversation_id);
       return {
         content: [
@@ -871,7 +1039,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
           removed: deleted,
         },
       };
-    },
+    }),
   );
 
   server.registerTool(
@@ -888,7 +1056,7 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
         openWorldHint: false,
       },
     },
-    async () => {
+    guard(async (_input: z.infer<typeof emptyToolInputSchema>) => {
       const ids = options.conversations.listConversationIds();
       return {
         content: [
@@ -902,11 +1070,13 @@ function registerTools(server: McpServer, options: DeepSeekMcpServerOptions): vo
           count: ids.length,
         },
       };
-    },
+    }),
   );
 }
 
-function normalizeInputMessages(input: ChatCompletionToolInput): DeepSeekChatMessage[] {
+function normalizeInputMessages(
+  input: ChatCompletionToolInput,
+): DeepSeekChatMessage[] {
   if (input.messages && input.messages.length > 0) {
     return input.messages as DeepSeekChatMessage[];
   }
@@ -979,6 +1149,7 @@ function buildCompletionRequest(
     "temperature",
     "top_p",
     "stream",
+    "stream_options",
     "logprobs",
     "echo",
     "stop",
@@ -1003,7 +1174,10 @@ function buildCompletionRequest(
   return request;
 }
 
-function buildResponseRequest(input: ResponseToolInput, defaultModel: string): DeepSeekResponseRequest {
+function buildResponseRequest(
+  input: ResponseToolInput,
+  defaultModel: string,
+): DeepSeekResponseRequest {
   const request: DeepSeekResponseRequest = {
     model: input.model ?? defaultModel,
   };
@@ -1062,7 +1236,10 @@ function collectResponseContent(
 ): string {
   return output
     .flatMap((item) => item.content ?? [])
-    .filter((content) => content.type === contentType && typeof content.text === "string")
+    .filter(
+      (content) =>
+        content.type === contentType && typeof content.text === "string",
+    )
     .map((content) => content.text)
     .join("");
 }
@@ -1105,13 +1282,19 @@ function makeToolErrorResult(error: unknown): {
   const message = error instanceof Error ? error.message : String(error);
   return {
     isError: true,
-    content: [{ type: "text", text: `Tool execution failed: ${message}. Check input schema and required fields.` }],
+    content: [
+      {
+        type: "text",
+        text: `Tool execution failed: ${message}. Check input schema and required fields.`,
+      },
+    ],
     structuredContent: {
       error_type: "tool_execution_error",
       status: null,
       message,
       retryable: false,
-      suggestion: "Validate the tool arguments against the published schema and retry.",
+      suggestion:
+        "Validate the tool arguments against the published schema and retry.",
     },
   };
 }
@@ -1124,7 +1307,9 @@ function isRetryableDeepSeekError(status: number | undefined): boolean {
   return RETRYABLE_DEEPSEEK_STATUS_CODES.has(status);
 }
 
-function getResponseErrorRetryability(error: Record<string, unknown> | null | undefined): boolean | undefined {
+function getResponseErrorRetryability(
+  error: Record<string, unknown> | null | undefined,
+): boolean | undefined {
   const code = typeof error?.code === "string" ? error.code : undefined;
   if (!code) {
     return undefined;

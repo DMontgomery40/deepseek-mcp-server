@@ -98,7 +98,15 @@ export interface DeepSeekChatCompletionRequest {
   thinking?: {
     type?: "enabled" | "disabled";
   };
-  reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  reasoning_effort?:
+    | "none"
+    | "minimal"
+    | "low"
+    | "medium"
+    | "high"
+    | "xhigh"
+    | "max"
+    | "ultra";
   user_id?: string;
   [key: string]: unknown;
 }
@@ -111,6 +119,7 @@ export interface DeepSeekCompletionRequest {
   temperature?: number;
   top_p?: number;
   stream?: boolean;
+  stream_options?: { include_usage?: boolean; [key: string]: unknown };
   logprobs?: number;
   echo?: boolean;
   stop?: string | string[];
@@ -245,7 +254,15 @@ export interface DeepSeekResponseRequest {
   input?: string | DeepSeekResponseInputItem[];
   instructions?: string;
   reasoning?: {
-    effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+    effort?:
+      | "none"
+      | "minimal"
+      | "low"
+      | "medium"
+      | "high"
+      | "xhigh"
+      | "max"
+      | "ultra";
   };
   max_output_tokens?: number;
   stream?: boolean;
@@ -296,6 +313,18 @@ export interface DeepSeekModel {
   object: string;
   owned_by?: string;
   created?: number;
+  name?: string;
+  context_window?: number;
+  max_output_tokens?: number;
+  input_modalities?: string[];
+  output_modalities?: string[];
+  effort?: { supported_levels: string[]; default_level?: string };
+  api_capabilities?: {
+    anthropic_messages?: {
+      system_prompt_update: "leading-only" | "in-history";
+    };
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 

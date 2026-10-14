@@ -22,7 +22,10 @@ interface Harness {
   };
 }
 
-async function createHarness(defaultModel = "deepseek-flash"): Promise<Harness> {
+async function createHarness(
+  defaultModel = "deepseek-flash",
+  toolRateLimit = 120,
+): Promise<Harness> {
   const file = {
     id: "file-api-test1",
     object: "file",
@@ -45,7 +48,8 @@ async function createHarness(defaultModel = "deepseek-flash"): Promise<Harness> 
             message: {
               role: "assistant",
               content: `assistant:${String(request.messages.at(-1)?.content ?? "")}`,
-              reasoning_content: request.thinking?.type === "enabled" ? "reasoning" : undefined,
+              reasoning_content:
+                request.thinking?.type === "enabled" ? "reasoning" : undefined,
             },
           },
         ],
@@ -127,16 +131,21 @@ async function createHarness(defaultModel = "deepseek-flash"): Promise<Harness> 
     client: api as unknown as DeepSeekApiClient,
     conversations: new ConversationStore(200),
     defaultModel,
+    toolRateLimit,
     version: "test",
   });
 
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
   const client = new Client({
     name: "test-client",
     version: "1.0.0",
   });
 
-  await Promise.all([mcpServer.connect(serverTransport), client.connect(clientTransport)]);
+  await Promise.all([
+    mcpServer.connect(serverTransport),
+    client.connect(clientTransport),
+  ]);
 
   return {
     serverClose: async () => {
@@ -233,7 +242,10 @@ describe("createDeepSeekMcpServer", () => {
       expect(firstRequest.messages).toHaveLength(1);
       expect(secondRequest.messages).toHaveLength(3);
 
-      const list = await harness.client.callTool({ name: "list_conversations", arguments: {} });
+      const list = await harness.client.callTool({
+        name: "list_conversations",
+        arguments: {},
+      });
       const textBlock = list.content?.[0];
       if (!textBlock || textBlock.type !== "text") {
         throw new Error("expected text tool output");
@@ -290,13 +302,15 @@ describe("createDeepSeekMcpServer", () => {
 
       expect(chat.isError).toBeFalsy();
       expect(harness.api.createChatCompletion).toHaveBeenCalledTimes(1);
-      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject({
-        model: "deepseek-v4-pro",
-        thinking: { type: "enabled" },
-        reasoning_effort: "max",
-        user_id: "tenant_123",
-        max_tokens: 64,
-      });
+      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject(
+        {
+          model: "deepseek-v4-pro",
+          thinking: { type: "enabled" },
+          reasoning_effort: "max",
+          user_id: "tenant_123",
+          max_tokens: 64,
+        },
+      );
 
       const completion = await harness.client.callTool({
         name: "completion",
@@ -328,7 +342,10 @@ describe("createDeepSeekMcpServer", () => {
     const harness = await createHarness();
     const chatMessage = [
       { type: "text", text: "describe" },
-      { type: "image_url", image_url: { url: "https://example.com/a.png", detail: "low" } },
+      {
+        type: "image_url",
+        image_url: { url: "https://example.com/a.png", detail: "low" },
+      },
     ];
     const responseInput = [
       {
@@ -352,10 +369,12 @@ describe("createDeepSeekMcpServer", () => {
 
       expect(chat.isError).toBeFalsy();
       expect(response.isError).toBeFalsy();
-      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject({
-        model: "deepseek-flash",
-        messages: [{ role: "user", content: chatMessage }],
-      });
+      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject(
+        {
+          model: "deepseek-flash",
+          messages: [{ role: "user", content: chatMessage }],
+        },
+      );
       expect(harness.api.createResponse.mock.calls[0]?.[0]).toMatchObject({
         model: "deepseek-flash",
         input: responseInput,
@@ -398,11 +417,13 @@ describe("createDeepSeekMcpServer", () => {
         },
       });
 
-      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject({
-        model: "deepseek-flash",
-        messages: [{ role: "user", content: "safe chat" }],
-        future_parameter: "kept",
-      });
+      expect(harness.api.createChatCompletion.mock.calls[0]?.[0]).toMatchObject(
+        {
+          model: "deepseek-flash",
+          messages: [{ role: "user", content: "safe chat" }],
+          future_parameter: "kept",
+        },
+      );
       expect(harness.api.createResponse.mock.calls[0]?.[0]).toMatchObject({
         model: "deepseek-flash",
         input: "safe response",
@@ -410,6 +431,154 @@ describe("createDeepSeekMcpServer", () => {
       expect(harness.api.createCompletion.mock.calls[0]?.[0]).toMatchObject({
         model: "deepseek-v4-pro",
         prompt: "safe completion",
+      });
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("limits tool invocations before provider or local-state work", async () => {
+    const harness = await createHarness("deepseek-flash", 1);
+    try {
+      const first = await harness.client.callTool({
+        name: "list_models",
+        arguments: {},
+      });
+      const second = await harness.client.callTool({
+        name: "list_models",
+        arguments: {},
+      });
+      expect(first.isError).toBeFalsy();
+      expect(second.isError).toBe(true);
+      expect(second.structuredContent).toMatchObject({
+        error_type: "tool_rate_limit",
+        retryable: true,
+      });
+      expect(harness.api.listModels).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("uses the configured default model for Chat and FIM calls", async () => {
+    const harness = await createHarness("deepseek-v4-pro");
+    try {
+      await harness.client.callTool({
+        name: "chat_completion",
+        arguments: { message: "hi" },
+      });
+      await harness.client.callTool({
+        name: "completion",
+        arguments: { prompt: "const x =" },
+      });
+      expect(harness.api.createChatCompletion.mock.calls[0]?.[0].model).toBe(
+        "deepseek-v4-pro",
+      );
+      expect(harness.api.createCompletion.mock.calls[0]?.[0].model).toBe(
+        "deepseek-v4-pro",
+      );
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("returns lossless Responses output items for multi-turn history", async () => {
+    const harness = await createHarness();
+    const output = [
+      {
+        type: "reasoning",
+        id: "reason-1",
+        content: [{ type: "reasoning_text", text: "think" }],
+        summary: [],
+      },
+      {
+        type: "message",
+        id: "message-1",
+        role: "assistant",
+        content: [{ type: "output_text", text: "answer", annotations: [] }],
+      },
+    ];
+    harness.api.createResponse.mockResolvedValueOnce({
+      response: { model: "deepseek-flash", status: "completed", output },
+    });
+    try {
+      const result = await harness.client.callTool({
+        name: "create_response",
+        arguments: { input: "hi" },
+      });
+      expect(result.structuredContent?.output_items).toEqual(output);
+      expect(result.structuredContent?.raw_response).toBeUndefined();
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("returns the required invalid-params error for a missing conversation resource", async () => {
+    const harness = await createHarness();
+    try {
+      await expect(
+        harness.client.readResource({
+          uri: "deepseek://conversations/does-not-exist",
+        }),
+      ).rejects.toMatchObject({ code: -32602 });
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("returns apply_patch custom tool calls without requiring raw responses", async () => {
+    const harness = await createHarness();
+    const call = {
+      type: "custom_tool_call",
+      call_id: "patch-1",
+      name: "apply_patch",
+      input: "*** Begin Patch\n*** End Patch",
+    };
+    harness.api.createResponse.mockResolvedValueOnce({
+      response: {
+        model: "deepseek-flash",
+        status: "completed",
+        output: [call],
+      },
+    });
+    try {
+      const result = await harness.client.callTool({
+        name: "create_response",
+        arguments: {
+          input: "Fix it",
+          tools: [{ type: "custom", name: "apply_patch" }],
+        },
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        custom_tool_calls: [call],
+        function_calls: [],
+      });
+      expect(result.structuredContent?.raw_response).toBeUndefined();
+      expect(result.content[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("*** Begin Patch"),
+      });
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("forwards FIM streaming usage options", async () => {
+    const harness = await createHarness();
+    try {
+      const result = await harness.client.callTool({
+        name: "completion",
+        arguments: {
+          prompt: "const x =",
+          stream: true,
+          stream_options: { include_usage: true },
+        },
+      });
+      expect(result.isError).toBeFalsy();
+      expect(harness.api.createCompletion.mock.calls[0]?.[0]).toMatchObject({
+        stream: true,
+        stream_options: { include_usage: true },
       });
     } finally {
       await harness.serverClose();
@@ -442,13 +611,18 @@ describe("createDeepSeekMcpServer", () => {
         max_output_tokens: 64,
         stream: true,
       });
-      expect(result.content?.[0]).toMatchObject({ type: "text", text: "response-text" });
+      expect(result.content?.[0]).toMatchObject({
+        type: "text",
+        text: "response-text",
+      });
       expect(result.structuredContent).toMatchObject({
         model: "deepseek-v4-pro",
         status: "completed",
         output_text: "response-text",
       });
-      expect((result.structuredContent as Record<string, unknown>)?.raw_response).toBeUndefined();
+      expect(
+        (result.structuredContent as Record<string, unknown>)?.raw_response,
+      ).toBeUndefined();
 
       const withRaw = await harness.client.callTool({
         name: "create_response",
@@ -457,7 +631,9 @@ describe("createDeepSeekMcpServer", () => {
           include_raw_response: true,
         },
       });
-      expect((withRaw.structuredContent as Record<string, unknown>)?.raw_response).toBeDefined();
+      expect(
+        (withRaw.structuredContent as Record<string, unknown>)?.raw_response,
+      ).toBeDefined();
     } finally {
       await harness.serverClose();
     }
@@ -484,56 +660,65 @@ describe("createDeepSeekMcpServer", () => {
   it.each([
     ["server_error", true],
     ["invalid_request_error", false],
-  ])("marks failed Responses API results as MCP errors for %s", async (errorCode, retryable) => {
-    const harness = await createHarness();
-    harness.api.createResponse.mockResolvedValueOnce({
-      response: {
-        id: "resp-failed",
-        object: "response",
-        created_at: 2,
-        status: "failed",
-        model: "deepseek-v4-flash",
-        output: [],
-        error: {
-          code: errorCode,
-          message: "provider failed",
-        },
-      },
-    });
-
-    try {
-      const result = await harness.client.callTool({
-        name: "create_response",
-        arguments: { input: "hello" },
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0]).toMatchObject({
-        type: "text",
-        text: expect.stringContaining("provider failed"),
-      });
-      expect(result.structuredContent).toMatchObject({
-        status: "failed",
-        retryable,
-        error: {
-          code: errorCode,
-          message: "provider failed",
+  ])(
+    "marks failed Responses API results as MCP errors for %s",
+    async (errorCode, retryable) => {
+      const harness = await createHarness();
+      harness.api.createResponse.mockResolvedValueOnce({
+        response: {
+          id: "resp-failed",
+          object: "response",
+          created_at: 2,
+          status: "failed",
+          model: "deepseek-v4-flash",
+          output: [],
+          error: {
+            code: errorCode,
+            message: "provider failed",
+          },
         },
       });
-    } finally {
-      await harness.serverClose();
-    }
-  });
+
+      try {
+        const result = await harness.client.callTool({
+          name: "create_response",
+          arguments: { input: "hello" },
+        });
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0]).toMatchObject({
+          type: "text",
+          text: expect.stringContaining("provider failed"),
+        });
+        expect(result.structuredContent).toMatchObject({
+          status: "failed",
+          retryable,
+          error: {
+            code: errorCode,
+            message: "provider failed",
+          },
+        });
+      } finally {
+        await harness.serverClose();
+      }
+    },
+  );
 
   it("calls list_models and get_user_balance", async () => {
     const harness = await createHarness();
 
     try {
-      const models = await harness.client.callTool({ name: "list_models", arguments: {} });
+      const models = await harness.client.callTool({
+        name: "list_models",
+        arguments: {},
+      });
       expect(models.isError).toBeFalsy();
       expect(harness.api.listModels).toHaveBeenCalledTimes(1);
 
-      const balance = await harness.client.callTool({ name: "get_user_balance", arguments: {} });
+      const balance = await harness.client.callTool({
+        name: "get_user_balance",
+        arguments: {},
+      });
       expect(balance.isError).toBeFalsy();
       expect(harness.api.getUserBalance).toHaveBeenCalledTimes(1);
     } finally {
@@ -579,24 +764,38 @@ describe("createDeepSeekMcpServer", () => {
         data: [{ id: "file-api-test1" }],
         has_more: false,
       });
-      expect(retrieve.structuredContent).toMatchObject({ id: "file-api-test1" });
+      expect(retrieve.structuredContent).toMatchObject({
+        id: "file-api-test1",
+      });
       expect(remove.structuredContent).toEqual({
         id: "file-api-test1",
         object: "file",
         deleted: true,
       });
-      expect(harness.api.uploadFile).toHaveBeenCalledWith({
-        filename: "pixel.png",
-        fileData: "iVBORw0KGgo=",
-        expiresAfterSeconds: 3600,
-      });
-      expect(harness.api.listFiles).toHaveBeenCalledWith({
-        limit: 25,
-        order: "desc",
-        purpose: "user_data",
-      });
-      expect(harness.api.retrieveFile).toHaveBeenCalledWith("file-api-test1");
-      expect(harness.api.deleteFile).toHaveBeenCalledWith("file-api-test1");
+      expect(harness.api.uploadFile).toHaveBeenCalledWith(
+        {
+          filename: "pixel.png",
+          fileData: "iVBORw0KGgo=",
+          expiresAfterSeconds: 3600,
+        },
+        expect.any(AbortSignal),
+      );
+      expect(harness.api.listFiles).toHaveBeenCalledWith(
+        {
+          limit: 25,
+          order: "desc",
+          purpose: "user_data",
+        },
+        expect.any(AbortSignal),
+      );
+      expect(harness.api.retrieveFile).toHaveBeenCalledWith(
+        "file-api-test1",
+        expect.any(AbortSignal),
+      );
+      expect(harness.api.deleteFile).toHaveBeenCalledWith(
+        "file-api-test1",
+        expect.any(AbortSignal),
+      );
     } finally {
       await harness.serverClose();
     }
@@ -614,7 +813,9 @@ describe("createDeepSeekMcpServer", () => {
       });
 
       expect(withoutRaw.isError).toBeFalsy();
-      expect((withoutRaw.structuredContent as Record<string, unknown>)?.raw_response).toBeUndefined();
+      expect(
+        (withoutRaw.structuredContent as Record<string, unknown>)?.raw_response,
+      ).toBeUndefined();
 
       const withRaw = await harness.client.callTool({
         name: "chat_completion",
@@ -625,7 +826,9 @@ describe("createDeepSeekMcpServer", () => {
       });
 
       expect(withRaw.isError).toBeFalsy();
-      expect((withRaw.structuredContent as Record<string, unknown>)?.raw_response).toBeDefined();
+      expect(
+        (withRaw.structuredContent as Record<string, unknown>)?.raw_response,
+      ).toBeDefined();
     } finally {
       await harness.serverClose();
     }

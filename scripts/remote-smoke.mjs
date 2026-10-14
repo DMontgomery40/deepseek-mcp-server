@@ -1,11 +1,22 @@
 #!/usr/bin/env node
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import dotenv from "dotenv";
 
-const url = process.env.DEEPSEEK_REMOTE_MCP_URL || "https://deepseek-mcp.ragweld.com/mcp";
+dotenv.config({ quiet: true });
+
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
+
+const url =
+  process.env.DEEPSEEK_REMOTE_MCP_URL || "https://deepseek-mcp.ragweld.com/mcp";
 const token = process.env.DEEPSEEK_MCP_AUTH_TOKEN;
 const model = process.env.DEEPSEEK_REMOTE_SMOKE_MODEL || "deepseek-flash";
-const expectedText = process.env.DEEPSEEK_REMOTE_SMOKE_EXPECT || "REMOTE_SMOKE_OK";
-const prompt = process.env.DEEPSEEK_REMOTE_SMOKE_PROMPT || `Reply with exactly: ${expectedText}`;
+const expectedText =
+  process.env.DEEPSEEK_REMOTE_SMOKE_EXPECT || "REMOTE_SMOKE_OK";
+const prompt =
+  process.env.DEEPSEEK_REMOTE_SMOKE_PROMPT ||
+  `Reply with exactly: ${expectedText}`;
 const timeoutMs = Number(process.env.DEEPSEEK_REMOTE_SMOKE_TIMEOUT_MS || 30000);
 
 if (!token) {
@@ -24,7 +35,7 @@ const transport = new StreamableHTTPClientTransport(new URL(url), {
 const client = new Client(
   {
     name: "deepseek-remote-smoke",
-    version: "1.0.1",
+    version: "1.4.0",
   },
   { versionNegotiation: { mode: "auto" } },
 );
@@ -85,13 +96,17 @@ try {
   );
 
   if (result.isError) {
-    throw new Error(`tools/call returned isError=true: ${JSON.stringify(result.structuredContent ?? null)}`);
+    throw new Error(
+      `tools/call returned isError=true: ${JSON.stringify(result.structuredContent ?? null)}`,
+    );
   }
 
   const textBlock = result.content?.find((content) => content.type === "text");
   const text = textBlock?.text?.trim() ?? "";
   if (text !== expectedText) {
-    throw new Error(`unexpected tool output: expected "${expectedText}" but got "${text}"`);
+    throw new Error(
+      `unexpected tool output: expected "${expectedText}" but got "${text}"`,
+    );
   }
 
   summary.checks.tools_call = true;
