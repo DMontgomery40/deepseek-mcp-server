@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   MAX_DEEPSEEK_FILE_BASE64_CHARS,
+  MAX_DEEPSEEK_INLINE_IMAGE_BYTES,
   inspectCanonicalBase64,
   isBase64SizeWithinLimit,
 } from "./image-data.js";
@@ -10,12 +11,18 @@ const FILE_ID_PATTERN = /^file-api-[a-zA-Z0-9_-]+$/;
 const SUPPORTED_IMAGE_DATA_URL_PATTERN =
   /^data:image\/(jpeg|png|gif|webp);base64,([a-zA-Z0-9+/]+={0,2})$/;
 
-const fileIdSchema = z.string().regex(FILE_ID_PATTERN, "Expected a DeepSeek file ID starting with `file-api-`");
+const fileIdSchema = z
+  .string()
+  .regex(
+    FILE_ID_PATTERN,
+    "Expected a DeepSeek file ID starting with `file-api-`",
+  );
 
 const imageDataUrlSchema = z
   .string()
-  .refine((value) => SUPPORTED_IMAGE_DATA_URL_PATTERN.test(value) && hasValidBase64Payload(value), {
-    message: "Expected a JPEG, PNG, GIF, or WebP base64 data URL",
+  .refine((value) => hasValidInlineImageDataUrl(value), {
+    message:
+      "Expected a JPEG, PNG, GIF, or WebP base64 data URL no larger than 32 MiB",
   });
 
 const imageReferenceSchema = z.string().refine(isSupportedImageReference, {
@@ -53,7 +60,8 @@ const chatFileContentPartSchema = z
     if ((value.file_id === undefined) === (value.file_data === undefined)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "A file content part requires exactly one of `file_id` or `file_data`",
+        message:
+          "A file content part requires exactly one of `file_id` or `file_data`",
       });
     }
 
@@ -75,7 +83,9 @@ const chatContentPartSchema = z.union([
 export const chatMessageSchema = z
   .object({
     role: z.enum(["system", "user", "assistant", "tool"]),
-    content: z.union([z.string(), z.array(chatContentPartSchema).min(1), z.null()]).optional(),
+    content: z
+      .union([z.string(), z.array(chatContentPartSchema).min(1), z.null()])
+      .optional(),
     name: z.string().optional(),
     tool_call_id: z.string().optional(),
     prefix: z.boolean().optional(),
@@ -84,16 +94,23 @@ export const chatMessageSchema = z
   })
   .passthrough()
   .superRefine((value, context) => {
-    if (Array.isArray(value.content) && !["user", "tool"].includes(value.role)) {
+    if (
+      Array.isArray(value.content) &&
+      !["user", "tool"].includes(value.role)
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["content"],
-        message: "Multimodal content is supported only in user and tool messages",
+        message:
+          "Multimodal content is supported only in user and tool messages",
       });
     }
   });
 
-const stopSchema = z.union([z.string().min(1), z.array(z.string().min(1)).min(1).max(16)]);
+const stopSchema = z.union([
+  z.string().min(1),
+  z.array(z.string().min(1)).min(1).max(16),
+]);
 
 const streamOptionsSchema = z
   .object({
@@ -103,7 +120,11 @@ const streamOptionsSchema = z
 
 const toolFunctionSchema = z
   .object({
-    name: z.string().min(1),
+    name: z
+      .string()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_-]+$/),
     description: z.string().optional(),
     parameters: z.record(z.string(), z.unknown()).optional(),
     strict: z.boolean().optional(),
@@ -164,7 +185,8 @@ const responseImageContentPartSchema = z
     if ((value.image_url === undefined) === (value.file_id === undefined)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "An input image requires exactly one of `image_url` or `file_id`",
+        message:
+          "An input image requires exactly one of `image_url` or `file_id`",
       });
     }
   });
@@ -195,7 +217,10 @@ const responseMessageInputItemSchema = z
   .object({
     type: z.literal("message").optional(),
     role: z.enum(["user", "assistant", "system", "developer"]),
-    content: z.union([z.string(), z.array(responseMessageContentPartSchema).min(1)]),
+    content: z.union([
+      z.string(),
+      z.array(responseMessageContentPartSchema).min(1),
+    ]),
   })
   .passthrough()
   .superRefine((value, context) => {
@@ -207,7 +232,8 @@ const responseMessageInputItemSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["content"],
-        message: "Responses images are not supported in system or assistant messages",
+        message:
+          "Responses images are not supported in system or assistant messages",
       });
     }
   });
@@ -226,7 +252,10 @@ const responseInputItemSchema = z.union([
     .object({
       type: z.literal("function_call_output"),
       call_id: z.string().min(1),
-      output: z.union([z.string(), z.array(responseToolOutputContentPartSchema).min(1)]),
+      output: z.union([
+        z.string(),
+        z.array(responseToolOutputContentPartSchema).min(1),
+      ]),
     })
     .passthrough(),
   z
@@ -241,7 +270,10 @@ const responseInputItemSchema = z.union([
     .object({
       type: z.literal("custom_tool_call_output"),
       call_id: z.string().min(1),
-      output: z.union([z.string(), z.array(responseToolOutputContentPartSchema).min(1)]),
+      output: z.union([
+        z.string(),
+        z.array(responseToolOutputContentPartSchema).min(1),
+      ]),
     })
     .passthrough(),
   z
@@ -260,8 +292,19 @@ const responseInputItemSchema = z.union([
 const responseToolSchema = z.union([
   z
     .object({
+      type: z.literal("custom"),
+      name: z.literal("apply_patch"),
+      description: z.string().optional(),
+    })
+    .passthrough(),
+  z
+    .object({
       type: z.literal("function"),
-      name: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/),
+      name: z
+        .string()
+        .min(1)
+        .max(128)
+        .regex(/^[a-zA-Z0-9_-]+$/),
       description: z.string().optional(),
       parameters: z.record(z.string(), z.unknown()).optional(),
     })
@@ -278,7 +321,11 @@ const responseToolChoiceSchema = z.union([
   z
     .object({
       type: z.literal("function"),
-      name: z.string().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/),
+      name: z
+        .string()
+        .min(1)
+        .max(128)
+        .regex(/^[a-zA-Z0-9_-]+$/),
     })
     .passthrough(),
   z
@@ -290,18 +337,17 @@ const responseToolChoiceSchema = z.union([
 
 const responseTextFormatSchema = z
   .object({
-    format: z
-      .union([
-        z.object({ type: z.literal("text") }).passthrough(),
-        z.object({ type: z.literal("json_object") }).passthrough(),
-        z
-          .object({
-            type: z.literal("json_schema"),
-            name: z.string().min(1),
-            schema: z.record(z.string(), z.unknown()),
-          })
-          .passthrough(),
-      ]),
+    format: z.union([
+      z.object({ type: z.literal("text") }).passthrough(),
+      z.object({ type: z.literal("json_object") }).passthrough(),
+      z
+        .object({
+          type: z.literal("json_schema"),
+          name: z.string().min(1),
+          schema: z.record(z.string(), z.unknown()),
+        })
+        .passthrough(),
+    ]),
   })
   .passthrough();
 
@@ -309,13 +355,15 @@ export const emptyToolInputSchema = z.object({});
 
 export const chatCompletionToolInputSchema = z
   .object({
-    message: z.union([z.string().min(1), z.array(chatContentPartSchema).min(1)]).optional(),
+    message: z
+      .union([z.string().min(1), z.array(chatContentPartSchema).min(1)])
+      .optional(),
     messages: z.array(chatMessageSchema).min(1).optional(),
-    model: z.string().default("deepseek-flash"),
+    model: z.string().optional(),
     conversation_id: z.string().min(1).optional(),
     clear_conversation: z.boolean().default(false),
     frequency_penalty: z.number().min(-2).max(2).optional(),
-    max_tokens: z.number().int().positive().optional(),
+    max_tokens: z.number().int().positive().max(393216).optional(),
     presence_penalty: z.number().min(-2).max(2).optional(),
     response_format: z
       .object({
@@ -327,14 +375,30 @@ export const chatCompletionToolInputSchema = z
     stream: z.boolean().default(false),
     stream_options: streamOptionsSchema.optional(),
     temperature: z.number().min(0).max(2).optional(),
-    top_p: z.number().min(0).max(1).optional(),
+    top_p: z.number().gt(0).max(1).optional(),
     tools: z.array(toolDefinitionSchema).optional(),
     tool_choice: toolChoiceSchema.optional(),
     logprobs: z.boolean().optional(),
     top_logprobs: z.number().int().min(0).max(20).optional(),
     thinking: thinkingSchema.optional(),
-    reasoning_effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
-    user_id: z.string().min(1).max(512).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+    reasoning_effort: z
+      .enum([
+        "none",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra",
+      ])
+      .optional(),
+    user_id: z
+      .string()
+      .min(1)
+      .max(512)
+      .regex(/^[a-zA-Z0-9_-]+$/)
+      .optional(),
     include_raw_response: z.boolean().default(false),
     extra_body: z.record(z.string(), z.unknown()).optional(),
   })
@@ -352,45 +416,138 @@ export const chatCompletionToolInputSchema = z
         message: "`top_logprobs` requires `logprobs=true`",
       });
     }
+
+    if (value.stream_options !== undefined && !value.stream) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stream_options"],
+        message: "`stream_options` requires `stream=true`",
+      });
+    }
+    const names = value.tools?.map((tool) => tool.function.name) ?? [];
+    if (new Set(names).size !== names.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tools"],
+        message: "Tool names must be unique",
+      });
+    }
+    if (
+      value.tools?.some((tool) => tool.function.strict) &&
+      value.tools.some((tool) => tool.function.strict !== true)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tools"],
+        message: "Strict mode requires strict=true on every function",
+      });
+    }
+    const thinkingEnabled =
+      value.reasoning_effort !== undefined
+        ? value.reasoning_effort !== "none"
+        : value.thinking?.type !== "disabled";
+    if (
+      thinkingEnabled &&
+      (value.tool_choice === "required" ||
+        typeof value.tool_choice === "object")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tool_choice"],
+        message: "Forced tool choices require thinking to be disabled",
+      });
+    }
+    value.messages?.forEach((message, index) => {
+      if (
+        message.prefix &&
+        (message.role !== "assistant" || index !== value.messages!.length - 1)
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["messages", index, "prefix"],
+          message: "prefix=true requires the final assistant message",
+        });
+      }
+    });
   });
 
-export const completionToolInputSchema = z.object({
-  model: z.string().default("deepseek-flash"),
-  prompt: z.string().min(1),
-  suffix: z.string().optional(),
-  max_tokens: z.number().int().positive().optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  top_p: z.number().min(0).max(1).optional(),
-  stream: z.boolean().default(false),
-  logprobs: z.number().int().min(0).max(20).optional(),
-  echo: z.boolean().optional(),
-  stop: stopSchema.optional(),
-  presence_penalty: z.number().min(-2).max(2).optional(),
-  frequency_penalty: z.number().min(-2).max(2).optional(),
-  include_raw_response: z.boolean().default(false),
-  extra_body: z.record(z.string(), z.unknown()).optional(),
-});
+export const completionToolInputSchema = z
+  .object({
+    model: z.string().optional(),
+    prompt: z.string().min(1),
+    suffix: z.string().optional(),
+    max_tokens: z.number().int().positive().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    top_p: z.number().gt(0).max(1).optional(),
+    stream: z.boolean().default(false),
+    stream_options: streamOptionsSchema.optional(),
+    logprobs: z.number().int().min(0).max(20).optional(),
+    echo: z.boolean().optional(),
+    stop: stopSchema.optional(),
+    presence_penalty: z.number().min(-2).max(2).optional(),
+    frequency_penalty: z.number().min(-2).max(2).optional(),
+    include_raw_response: z.boolean().default(false),
+    extra_body: z.record(z.string(), z.unknown()).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.stream_options !== undefined && !value.stream) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["stream_options"],
+        message: "`stream_options` requires `stream=true`",
+      });
+    }
+    if (
+      value.echo &&
+      (value.suffix !== undefined || value.logprobs !== undefined)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["echo"],
+        message: "`echo=true` cannot be combined with `suffix` or `logprobs`",
+      });
+    }
+  });
 
 export const responseToolInputSchema = z
   .object({
     model: z.string().optional(),
-    input: z.union([z.string().min(1), z.array(responseInputItemSchema).min(1)]).optional(),
+    input: z
+      .union([z.string().min(1), z.array(responseInputItemSchema).min(1)])
+      .optional(),
     instructions: z.string().min(1).optional(),
     reasoning: z
       .object({
-        effort: z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
+        effort: z
+          .enum([
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra",
+          ])
+          .optional(),
+        summary: z.string().optional(),
       })
       .strict()
       .optional(),
     max_output_tokens: z.number().int().positive().optional(),
     stream: z.boolean().default(false),
     temperature: z.number().min(0).max(2).optional(),
-    top_p: z.number().min(0).max(1).optional(),
+    top_p: z.number().gt(0).max(1).optional(),
     text: responseTextFormatSchema.optional(),
     tools: z.array(responseToolSchema).optional(),
     tool_choice: responseToolChoiceSchema.optional(),
     top_logprobs: z.number().int().min(0).max(20).optional(),
-    user: z.string().min(1).max(512).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+    user: z
+      .string()
+      .min(1)
+      .max(512)
+      .regex(/^[a-zA-Z0-9_-]+$/)
+      .optional(),
     include_raw_response: z.boolean().default(false),
     extra_body: z.record(z.string(), z.unknown()).optional(),
   })
@@ -427,17 +584,21 @@ export const fileIdToolInputSchema = z.object({
   file_id: fileIdSchema,
 });
 
-export type ChatCompletionToolInput = z.infer<typeof chatCompletionToolInputSchema>;
+export type ChatCompletionToolInput = z.infer<
+  typeof chatCompletionToolInputSchema
+>;
 export type CompletionToolInput = z.infer<typeof completionToolInputSchema>;
 export type ResponseToolInput = z.infer<typeof responseToolInputSchema>;
-export type ResetConversationToolInput = z.infer<typeof resetConversationToolInputSchema>;
+export type ResetConversationToolInput = z.infer<
+  typeof resetConversationToolInputSchema
+>;
 export type UploadFileToolInput = z.infer<typeof uploadFileToolInputSchema>;
 export type ListFilesToolInput = z.infer<typeof listFilesToolInputSchema>;
 export type FileIdToolInput = z.infer<typeof fileIdToolInputSchema>;
 
 function isSupportedImageReference(value: string): boolean {
-  if (SUPPORTED_IMAGE_DATA_URL_PATTERN.test(value)) {
-    return hasValidBase64Payload(value);
+  if (value.startsWith("data:")) {
+    return hasValidInlineImageDataUrl(value);
   }
 
   if (value.length > 8192) {
@@ -452,15 +613,27 @@ function isSupportedImageReference(value: string): boolean {
   }
 }
 
+function hasValidInlineImageDataUrl(value: string): boolean {
+  const payloadLength = value.length - value.indexOf(",") - 1;
+  return (
+    payloadLength <= Math.ceil(MAX_DEEPSEEK_INLINE_IMAGE_BYTES / 3) * 4 &&
+    SUPPORTED_IMAGE_DATA_URL_PATTERN.test(value) &&
+    hasValidBase64Payload(value, MAX_DEEPSEEK_INLINE_IMAGE_BYTES)
+  );
+}
+
 function hasValidUploadBase64(value: string): boolean {
   if (value.startsWith("data:")) {
-    return SUPPORTED_IMAGE_DATA_URL_PATTERN.test(value) && hasValidBase64Payload(value);
+    return (
+      SUPPORTED_IMAGE_DATA_URL_PATTERN.test(value) &&
+      hasValidBase64Payload(value)
+    );
   }
 
   return hasValidBase64Payload(value);
 }
 
-function hasValidBase64Payload(value: string): boolean {
+function hasValidBase64Payload(value: string, maxBytes?: number): boolean {
   const commaIndex = value.indexOf(",");
   const payload = commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
 
@@ -471,6 +644,6 @@ function hasValidBase64Payload(value: string): boolean {
   const inspection = inspectCanonicalBase64(payload);
   return (
     inspection !== undefined &&
-    isBase64SizeWithinLimit(payload.length, inspection.padding)
+    isBase64SizeWithinLimit(payload.length, inspection.padding, maxBytes)
   );
 }

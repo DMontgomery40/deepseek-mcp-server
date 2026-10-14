@@ -10,29 +10,44 @@ export interface RuntimeConfig {
   httpPort: number;
   httpPath: string;
   httpAllowedOrigins: string[];
+  httpAuthToken?: string;
+  httpTrustAuthGateway: boolean;
   conversationMaxMessages: number;
+  toolRateLimit: number;
 }
 
-export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
+export function loadRuntimeConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): RuntimeConfig {
   const deepseekApiKey = env.DEEPSEEK_API_KEY;
   if (!deepseekApiKey) {
     throw new Error("DEEPSEEK_API_KEY environment variable is required");
   }
 
   const transportRaw = (env.MCP_TRANSPORT ?? "stdio").trim().toLowerCase();
-  const transport = transportRaw === "streamable-http" ? "streamable-http" : "stdio";
+  const transport =
+    transportRaw === "streamable-http" ? "streamable-http" : "stdio";
 
   return {
     deepseekApiKey,
     deepseekBaseUrl: env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
-    deepseekRequestTimeoutMs: parsePositiveInt(env.DEEPSEEK_REQUEST_TIMEOUT_MS, 120000),
+    deepseekRequestTimeoutMs: parsePositiveInt(
+      env.DEEPSEEK_REQUEST_TIMEOUT_MS,
+      120000,
+    ),
     defaultModel: env.DEEPSEEK_DEFAULT_MODEL ?? "deepseek-flash",
     transport,
     httpHost: env.MCP_HTTP_HOST ?? "127.0.0.1",
     httpPort: parsePort(env.MCP_HTTP_PORT, 3001),
     httpPath: normalizePath(env.MCP_HTTP_PATH ?? "/mcp"),
     httpAllowedOrigins: parseCsv(env.MCP_HTTP_ALLOWED_ORIGINS),
-    conversationMaxMessages: parsePositiveInt(env.CONVERSATION_MAX_MESSAGES, 200),
+    httpAuthToken: env.MCP_HTTP_AUTH_TOKEN || undefined,
+    httpTrustAuthGateway: env.MCP_HTTP_TRUST_AUTH_GATEWAY === "true",
+    toolRateLimit: parsePositiveInt(env.MCP_TOOL_RATE_LIMIT, 120),
+    conversationMaxMessages: parsePositiveInt(
+      env.CONVERSATION_MAX_MESSAGES,
+      200,
+    ),
   };
 }
 
@@ -47,7 +62,10 @@ function parseCsv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function parsePositiveInt(value: string | undefined, defaultValue: number): number {
+function parsePositiveInt(
+  value: string | undefined,
+  defaultValue: number,
+): number {
   if (!value) {
     return defaultValue;
   }

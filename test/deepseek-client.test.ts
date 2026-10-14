@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { createServer, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 
 import { DeepSeekApiClient, DeepSeekApiError } from "../src/deepseek/client.js";
 
@@ -11,12 +13,18 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function sseResponse(events: Array<Record<string, unknown> | "[DONE]">, status = 200): Response {
+function sseResponse(
+  events: Array<Record<string, unknown> | "[DONE]">,
+  status = 200,
+): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const event of events) {
-        const chunk = event === "[DONE]" ? "data: [DONE]\n\n" : `data: ${JSON.stringify(event)}\n\n`;
+        const chunk =
+          event === "[DONE]"
+            ? "data: [DONE]\n\n"
+            : `data: ${JSON.stringify(event)}\n\n`;
         controller.enqueue(encoder.encode(chunk));
       }
 
@@ -33,6 +41,413 @@ function sseResponse(events: Array<Record<string, unknown> | "[DONE]">, status =
 }
 
 describe("DeepSeekApiClient", () => {
+  it("preserves streamed FIM logprobs and backend fingerprint", async () => {
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: async () =>
+        sseResponse([
+          {
+            system_fingerprint: "fp-fim",
+            choices: [
+              {
+                text: "x",
+                logprobs: { tokens: ["x"], token_logprobs: [-0.1] },
+              },
+            ],
+          },
+          {
+            choices: [
+              {
+                text: ";",
+                logprobs: { tokens: [";"], token_logprobs: [-0.2] },
+                finish_reason: "stop",
+              },
+            ],
+          },
+          "[DONE]",
+        ]),
+    });
+    const result = await client.createCompletion({
+      model: "deepseek-flash",
+      prompt: "const y = ",
+      logprobs: 1,
+      stream: true,
+    });
+    expect(result.response.system_fingerprint).toBe("fp-fim");
+    expect(result.response.choices[0].logprobs).toMatchObject({
+      tokens: ["x", ";"],
+      token_logprobs: [-0.1, -0.2],
+    });
+  });
+  it.each([false, true])(
+    "redacts credentials in HTTP-success Responses failures (stream=%s)",
+    async (stream) => {
+      const response = {
+        id: "failed",
+        model: "deepseek-flash",
+        status: "failed",
+        output: [],
+        error: { message: "rejected test-secret-value" },
+      };
+      const client = new DeepSeekApiClient({
+        apiKey: "test-secret-value",
+        fetchFn: async () =>
+          stream
+            ? sseResponse([{ type: "response.failed", response }])
+            : jsonResponse(response),
+      });
+      const result = await client.createResponse({
+        model: "deepseek-flash",
+        input: "hi",
+        stream,
+      });
+      expect(result.response.error?.message).toBe("rejected [REDACTED]");
+      expect(JSON.stringify(result.response)).not.toContain(
+        "test-secret-value",
+      );
+    },
+  );
+
+  it("preserves streamed Chat logprobs and backend fingerprint", async () => {
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: async () =>
+        sseResponse([
+          {
+            system_fingerprint: "fp-test",
+            choices: [
+              {
+                delta: { content: "hi" },
+                logprobs: {
+                  content: [{ token: "hi", logprob: -0.1 }],
+                  reasoning_content: [],
+                },
+              },
+            ],
+          },
+          {
+            choices: [
+              {
+                delta: { content: "!" },
+                logprobs: {
+                  content: [{ token: "!", logprob: -0.2 }],
+                  reasoning_content: [],
+                },
+                finish_reason: "stop",
+              },
+            ],
+          },
+          "[DONE]",
+        ]),
+    });
+    const result = await client.createChatCompletion({
+      model: "deepseek-flash",
+      messages: [{ role: "user", content: "hi" }],
+      logprobs: true,
+      stream: true,
+    });
+    expect(result.response.system_fingerprint).toBe("fp-test");
+    expect(result.response.choices[0].logprobs).toMatchObject({
+      content: [
+        { token: "hi", logprob: -0.1 },
+        { token: "!", logprob: -0.2 },
+      ],
+    });
+  });
+  it("validates Responses call pairing and duplicate tool names before sending", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: fetchMock,
+    });
+    await expect(
+      client.createResponse({
+        model: "deepseek-flash",
+        input: [
+          {
+            type: "function_call",
+            call_id: "call-1",
+            name: "echo",
+            arguments: "{}",
+          },
+        ],
+      }),
+    ).rejects.toThrow("matching output");
+    await expect(
+      client.createResponse({
+        model: "deepseek-flash",
+        input: "hi",
+        tools: [
+          { type: "function", name: "echo" },
+          { type: "function", name: "echo" },
+        ],
+      }),
+    ).rejects.toThrow("unique");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it("redacts the configured API key if a provider error reflects it", async () => {
+    const client = new DeepSeekApiClient({
+      apiKey: "test-secret-value",
+      fetchFn: async () =>
+        jsonResponse({ error: { message: "rejected test-secret-value" } }, 401),
+    });
+    await expect(client.listModels()).rejects.toMatchObject({
+      message: "rejected [REDACTED]",
+      status: 401,
+    });
+  });
+  it("rejects UTF-8 JSON bodies above 48 MiB before sending", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: fetchMock,
+    });
+    await expect(
+      client.createResponse({
+        model: "deepseek-flash",
+        input: "é".repeat(25_165_824),
+      }),
+    ).rejects.toThrow("48 MiB");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects more than 600 images across Chat history or Responses tool outputs before sending", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: fetchMock,
+    });
+    await expect(
+      client.createChatCompletion({
+        model: "deepseek-flash",
+        messages: [
+          {
+            role: "user",
+            content: Array.from({ length: 601 }, () => ({
+              type: "image_url" as const,
+              image_url: { url: "https://example.com/image.png" },
+            })),
+          },
+        ],
+      }),
+    ).rejects.toThrow("600 images");
+    await expect(
+      client.createResponse({
+        model: "deepseek-flash",
+        input: [
+          {
+            type: "function_call_output",
+            call_id: "call",
+            output: Array.from({ length: 601 }, () => ({
+              type: "input_image" as const,
+              file_id: "file-api-test",
+            })),
+          },
+        ],
+      }),
+    ).rejects.toThrow("600 images");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it.each([
+    {
+      messages: [
+        { role: "assistant" as const, content: "prefix", prefix: true },
+      ],
+    },
+    {
+      messages: [{ role: "user" as const, content: "hello" }],
+      tools: [
+        {
+          type: "function" as const,
+          function: { name: "lookup", strict: true },
+        },
+      ],
+    },
+  ])(
+    "uses the beta endpoint for chat prefix or strict tools",
+    async (request) => {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockImplementation(async () => jsonResponse({ choices: [] }));
+      const client = new DeepSeekApiClient({
+        apiKey: "test",
+        fetchFn: fetchMock,
+      });
+      await client.createChatCompletion({
+        model: "deepseek-flash",
+        ...request,
+      });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.deepseek.com/beta/chat/completions",
+      );
+      await client.createChatCompletion({
+        model: "deepseek-flash",
+        ...request,
+        stream: true,
+      });
+      expect(fetchMock.mock.calls[1]?.[0]).toBe(
+        "https://api.deepseek.com/beta/chat/completions",
+      );
+    },
+  );
+
+  it.each(["https://api.deepseek.com/v1", "https://api.deepseek.com/beta/"])(
+    "avoids duplicate beta prefixes with base URL %s",
+    async (baseUrl) => {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(jsonResponse({ choices: [] }));
+      const client = new DeepSeekApiClient({
+        apiKey: "test",
+        baseUrl,
+        fetchFn: fetchMock,
+      });
+      await client.createCompletion({
+        model: "deepseek-flash",
+        prompt: "const x =",
+      });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(
+        "https://api.deepseek.com/beta/completions",
+      );
+    },
+  );
+  it.each([false, true])(
+    "times out a stalled response body after headers (stream=%s)",
+    async (stream) => {
+      const server = createServer((_req, res) => {
+        res.setHeader(
+          "Content-Type",
+          stream ? "text/event-stream" : "application/json",
+        );
+        res.flushHeaders();
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      const { port } = server.address() as AddressInfo;
+      const client = new DeepSeekApiClient({
+        apiKey: "test",
+        baseUrl: `http://127.0.0.1:${port}`,
+        timeoutMs: 50,
+      });
+      let guard: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          client
+            .createChatCompletion({
+              model: "deepseek-flash",
+              messages: [{ role: "user", content: "hello" }],
+              stream,
+            })
+            .catch((error: unknown) => error),
+          new Promise((resolve) => {
+            guard = setTimeout(() => resolve("body was not timed out"), 500);
+          }),
+        ]);
+        expect(result).toBeInstanceOf(DeepSeekApiError);
+        expect((result as Error).message).toContain("timed out after 50ms");
+      } finally {
+        clearTimeout(guard);
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+  );
+
+  it("preserves a non-JSON provider error body", async () => {
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: async () =>
+        new Response("upstream maintenance", { status: 503 }),
+    });
+    await expect(client.listModels()).rejects.toMatchObject({
+      status: 503,
+      message: "upstream maintenance",
+    });
+  });
+
+  it("parses CRLF event boundaries split across network chunks", async () => {
+    const encoder = new TextEncoder();
+    const fragments = [
+      'data: {"choices":[{"delta":{"content":"hello"}}]}\r',
+      "\n\r",
+      '\ndata: {"choices":[{"delta":{"content":" world"},"finish_reason":"stop"}]}\r\n\r\n',
+    ];
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const fragment of fragments)
+          controller.enqueue(encoder.encode(fragment));
+        controller.close();
+      },
+    });
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: async () => new Response(body),
+    });
+    const result = await client.createChatCompletion({
+      model: "deepseek-flash",
+      messages: [{ role: "user", content: "hello" }],
+      stream: true,
+    });
+    expect(result.response.choices[0]?.message.content).toBe("hello world");
+    expect(result.streamChunkCount).toBe(2);
+  });
+
+  it("stops reading at DONE even if the provider keeps the connection open", async () => {
+    let response: ServerResponse | undefined;
+    const server = createServer((_req, res) => {
+      response = res;
+      res.setHeader("Content-Type", "text/event-stream");
+      res.write(
+        'data: {"choices":[{"delta":{"content":"complete"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      );
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const { port } = server.address() as AddressInfo;
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      baseUrl: `http://127.0.0.1:${port}`,
+      timeoutMs: 1000,
+    });
+    let guard: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        client.createChatCompletion({
+          model: "deepseek-flash",
+          messages: [{ role: "user", content: "hello" }],
+          stream: true,
+        }),
+        new Promise((resolve) => {
+          guard = setTimeout(() => resolve("did not stop at DONE"), 500);
+        }),
+      ]);
+      expect(result).toMatchObject({
+        response: { choices: [{ message: { content: "complete" } }] },
+      });
+    } finally {
+      clearTimeout(guard);
+      response?.end();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("surfaces SSE provider errors instead of returning an empty completion", async () => {
+    const client = new DeepSeekApiClient({
+      apiKey: "test",
+      fetchFn: async () =>
+        sseResponse([{ error: { message: "stream overloaded" } }, "[DONE]"]),
+    });
+    await expect(
+      client.createChatCompletion({
+        model: "deepseek-flash",
+        messages: [{ role: "user", content: "hello" }],
+        stream: true,
+      }),
+    ).rejects.toThrow("stream overloaded");
+  });
   it("sends non-stream chat completion payload to /chat/completions", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({
@@ -103,7 +518,7 @@ describe("DeepSeekApiClient", () => {
                     type: "function",
                     function: {
                       name: "weather",
-                      arguments: "{\"city\":\"N",
+                      arguments: '{"city":"N',
                     },
                   },
                 ],
@@ -128,7 +543,7 @@ describe("DeepSeekApiClient", () => {
                     index: 0,
                     type: "function",
                     function: {
-                      arguments: "YC\"}",
+                      arguments: 'YC"}',
                     },
                   },
                 ],
@@ -161,9 +576,15 @@ describe("DeepSeekApiClient", () => {
     expect(result.streamChunkCount).toBe(2);
     expect(result.response.model).toBe("deepseek-v4-flash");
     expect(result.response.choices[0]?.message.content).toBe("Hello world");
-    expect(result.response.choices[0]?.message.reasoning_content).toBe("First thought. Second thought.");
-    expect(result.response.choices[0]?.message.tool_calls?.[0]?.function.name).toBe("weather");
-    expect(result.response.choices[0]?.message.tool_calls?.[0]?.function.arguments).toBe('{"city":"NYC"}');
+    expect(result.response.choices[0]?.message.reasoning_content).toBe(
+      "First thought. Second thought.",
+    );
+    expect(
+      result.response.choices[0]?.message.tool_calls?.[0]?.function.name,
+    ).toBe("weather");
+    expect(
+      result.response.choices[0]?.message.tool_calls?.[0]?.function.arguments,
+    ).toBe('{"city":"NYC"}');
     expect(result.response.choices[0]?.finish_reason).toBe("tool_calls");
   });
 
@@ -192,7 +613,9 @@ describe("DeepSeekApiClient", () => {
     ).rejects.toBeInstanceOf(DeepSeekApiError);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body));
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit).body),
+    );
     expect(body.model).toBe("deepseek-v4-pro");
   });
 
@@ -245,7 +668,9 @@ describe("DeepSeekApiClient", () => {
             id: "msg-1",
             status: "completed",
             role: "assistant",
-            content: [{ type: "output_text", text: "response text", annotations: [] }],
+            content: [
+              { type: "output_text", text: "response text", annotations: [] },
+            ],
           },
         ],
         usage: {
@@ -341,7 +766,9 @@ describe("DeepSeekApiClient", () => {
     expect(result.streamEventCount).toBe(3);
     expect(result.response.status).toBe("completed");
     expect(result.response.output[0]?.content?.[0]?.text).toBe("streamed");
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.deepseek.com/responses");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.deepseek.com/responses",
+    );
   });
 
   it("supports streaming FIM completion aggregation", async () => {
@@ -380,7 +807,9 @@ describe("DeepSeekApiClient", () => {
     expect(result.streamChunkCount).toBe(2);
     expect(result.response.choices[0]?.text).toBe("foobar");
     expect(result.response.choices[0]?.finish_reason).toBe("stop");
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://api.deepseek.com/beta/completions");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.deepseek.com/beta/completions",
+    );
   });
 
   it("calls /models and /user/balance endpoints", async () => {
@@ -417,7 +846,10 @@ describe("DeepSeekApiClient", () => {
     const models = await client.listModels();
     const balance = await client.getUserBalance();
 
-    expect(models.data.map((model) => model.id)).toEqual(["deepseek-v4-flash", "deepseek-v4-pro"]);
+    expect(models.data.map((model) => model.id)).toEqual([
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
+    ]);
     expect(balance.is_available).toBe(true);
     expect(balance.balance_infos[0]?.currency).toBe("USD");
 
@@ -439,7 +871,10 @@ describe("DeepSeekApiClient", () => {
         expires_at: 3700,
       }),
     );
-    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+    });
     const filesClient = client as unknown as {
       uploadFile(input: {
         filename: string;
@@ -454,7 +889,10 @@ describe("DeepSeekApiClient", () => {
       expiresAfterSeconds: 3600,
     });
 
-    expect(uploaded).toMatchObject({ id: "file-api-upload1", filename: "pixel.png" });
+    expect(uploaded).toMatchObject({
+      id: "file-api-upload1",
+      filename: "pixel.png",
+    });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://api.deepseek.com/files");
     expect(init.method).toBe("POST");
@@ -496,7 +934,10 @@ describe("DeepSeekApiClient", () => {
       .mockResolvedValueOnce(
         jsonResponse({ id: "file-api-a", object: "file", deleted: true }),
       );
-    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+    });
     const filesClient = client as unknown as {
       listFiles(input: {
         after?: string;
@@ -519,42 +960,72 @@ describe("DeepSeekApiClient", () => {
 
     expect(listed.data.map((entry) => entry.id)).toEqual(["file-api-a"]);
     expect(retrieved.id).toBe("file-api-a");
-    expect(deleted).toEqual({ id: "file-api-a", object: "file", deleted: true });
+    expect(deleted).toEqual({
+      id: "file-api-a",
+      object: "file",
+      deleted: true,
+    });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "https://api.deepseek.com/files?after=file-api-a&limit=25&order=desc&purpose=user_data",
       "https://api.deepseek.com/files/file-api-a",
       "https://api.deepseek.com/files/file-api-a",
     ]);
-    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual(["GET", "GET", "DELETE"]);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.method)).toEqual([
+      "GET",
+      "GET",
+      "DELETE",
+    ]);
   });
 
   it("rejects unsupported uploaded image bytes before making a request", async () => {
     const fetchMock = vi.fn<typeof fetch>();
-    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+    });
     const filesClient = client as unknown as {
-      uploadFile(input: { filename: string; fileData: string }): Promise<unknown>;
+      uploadFile(input: {
+        filename: string;
+        fileData: string;
+      }): Promise<unknown>;
     };
-    const suppliedPayload = Buffer.from("not an image", "utf8").toString("base64");
+    const suppliedPayload = Buffer.from("not an image", "utf8").toString(
+      "base64",
+    );
 
     await expect(
-      filesClient.uploadFile({ filename: "fake.png", fileData: suppliedPayload }),
+      filesClient.uploadFile({
+        filename: "fake.png",
+        fileData: suppliedPayload,
+      }),
     ).rejects.toThrow("Unsupported image format");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("does not echo uploaded image data when DeepSeek rejects the file", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      jsonResponse({ error: { message: "image rejected" } }, 400),
-    );
-    const client = new DeepSeekApiClient({ apiKey: "test-key", fetchFn: fetchMock });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        jsonResponse({ error: { message: "image rejected" } }, 400),
+      );
+    const client = new DeepSeekApiClient({
+      apiKey: "test-key",
+      fetchFn: fetchMock,
+    });
     const filesClient = client as unknown as {
-      uploadFile(input: { filename: string; fileData: string }): Promise<unknown>;
+      uploadFile(input: {
+        filename: string;
+        fileData: string;
+      }): Promise<unknown>;
     };
     const suppliedPayload = "data:image/png;base64,iVBORw0KGgo=";
 
     let caught: unknown;
     try {
-      await filesClient.uploadFile({ filename: "pixel.png", fileData: suppliedPayload });
+      await filesClient.uploadFile({
+        filename: "pixel.png",
+        fileData: suppliedPayload,
+      });
     } catch (error) {
       caught = error;
     }

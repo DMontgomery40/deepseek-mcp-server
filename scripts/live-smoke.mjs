@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import dotenv from "dotenv";
+
+dotenv.config({ quiet: true });
+
 import { ConversationStore } from "../build/conversation-store.js";
 import { DeepSeekApiClient } from "../build/deepseek/client.js";
 import { createDeepSeekMcpServer } from "../build/mcp-server.js";
@@ -36,16 +40,24 @@ async function runEndpoint(name, fn) {
       ok: false,
       duration_ms: null,
       error: error instanceof Error ? error.message : String(error),
-      status: error && typeof error === "object" && "status" in error ? error.status : undefined,
+      status:
+        error && typeof error === "object" && "status" in error
+          ? error.status
+          : undefined,
     };
   }
 }
 
 await runEndpoint("GET /models", async () => {
   const models = await client.listModels();
-  const ids = Array.isArray(models.data) ? models.data.map((model) => model.id) : [];
+  const ids = Array.isArray(models.data)
+    ? models.data.map((model) => model.id)
+    : [];
 
-  assert(ids.includes("deepseek-flash"), "models response did not include deepseek-flash");
+  assert(
+    ids.includes("deepseek-flash"),
+    "models response did not include deepseek-flash",
+  );
 
   return {
     object: models.object,
@@ -55,8 +67,14 @@ await runEndpoint("GET /models", async () => {
 
 await runEndpoint("GET /user/balance", async () => {
   const balance = await client.getUserBalance();
-  assert(typeof balance.is_available === "boolean", "balance response missing boolean is_available");
-  assert(Array.isArray(balance.balance_infos), "balance response missing balance_infos array");
+  assert(
+    typeof balance.is_available === "boolean",
+    "balance response missing boolean is_available",
+  );
+  assert(
+    Array.isArray(balance.balance_infos),
+    "balance response missing balance_infos array",
+  );
 
   return {
     is_available: balance.is_available,
@@ -75,10 +93,22 @@ await runEndpoint("POST /chat/completions non-thinking", async () => {
   const choice = result.response.choices?.[0];
   const text = choice?.message?.content ?? "";
 
-  assert(result.response.object === "chat.completion", "non-stream chat object shape mismatch");
-  assert(result.response.model === "deepseek-flash", "non-stream chat returned unexpected model");
-  assert(text.includes("LIVE_CHAT_OK"), `non-stream chat text missing marker: ${text}`);
-  assert(!choice?.message?.reasoning_content, "non-thinking chat unexpectedly returned reasoning_content");
+  assert(
+    result.response.object === "chat.completion",
+    "non-stream chat object shape mismatch",
+  );
+  assert(
+    result.response.model === "deepseek-flash",
+    "non-stream chat returned unexpected model",
+  );
+  assert(
+    text.includes("LIVE_CHAT_OK"),
+    `non-stream chat text missing marker: ${text}`,
+  );
+  assert(
+    !choice?.message?.reasoning_content,
+    "non-thinking chat unexpectedly returned reasoning_content",
+  );
 
   return {
     id: result.response.id,
@@ -86,7 +116,9 @@ await runEndpoint("POST /chat/completions non-thinking", async () => {
     finish_reason: choice?.finish_reason ?? null,
     text,
     has_reasoning_content: Boolean(choice?.message?.reasoning_content),
-    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
+    usage_keys: result.response.usage
+      ? Object.keys(result.response.usage).sort()
+      : [],
   };
 });
 
@@ -94,7 +126,12 @@ await runEndpoint("POST /chat/completions thinking stream", async () => {
   const result = await client.createChatCompletion({
     model: "deepseek-flash",
     stream: true,
-    messages: [{ role: "user", content: "Compute 19 + 23, then end with LIVE_STREAM_REASONING_OK:42" }],
+    messages: [
+      {
+        role: "user",
+        content: "Compute 19 + 23, then end with LIVE_STREAM_REASONING_OK:42",
+      },
+    ],
     thinking: { type: "enabled" },
     reasoning_effort: "high",
     max_tokens: 256,
@@ -104,10 +141,19 @@ await runEndpoint("POST /chat/completions thinking stream", async () => {
   const text = choice?.message?.content ?? "";
   const reasoning = choice?.message?.reasoning_content ?? "";
 
-  assert(result.response.object === "chat.completion", "stream chat aggregate object shape mismatch");
+  assert(
+    result.response.object === "chat.completion",
+    "stream chat aggregate object shape mismatch",
+  );
   assert((result.streamChunkCount ?? 0) > 0, "stream chat returned no chunks");
-  assert(text.includes("LIVE_STREAM_REASONING_OK:42"), `stream chat text missing marker: ${text}`);
-  assert(reasoning.length > 0, "thinking stream did not aggregate reasoning_content");
+  assert(
+    text.includes("LIVE_STREAM_REASONING_OK:42"),
+    `stream chat text missing marker: ${text}`,
+  );
+  assert(
+    reasoning.length > 0,
+    "thinking stream did not aggregate reasoning_content",
+  );
 
   return {
     id: result.response.id,
@@ -117,7 +163,9 @@ await runEndpoint("POST /chat/completions thinking stream", async () => {
     text,
     reasoning_preview: reasoning.slice(0, 200),
     reasoning_length: reasoning.length,
-    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
+    usage_keys: result.response.usage
+      ? Object.keys(result.response.usage).sort()
+      : [],
   };
 });
 
@@ -135,16 +183,90 @@ await runEndpoint("POST /responses", async () => {
     .map((content) => content.text ?? "")
     .join("");
 
-  assert(result.response.object === "response", "Responses API object shape mismatch");
-  assert(result.response.status === "completed", `Responses API status was ${result.response.status}`);
-  assert(text.includes("LIVE_RESPONSE_OK"), `Responses API text missing marker: ${text}`);
+  assert(
+    result.response.object === "response",
+    "Responses API object shape mismatch",
+  );
+  assert(
+    result.response.status === "completed",
+    `Responses API status was ${result.response.status}`,
+  );
+  assert(
+    text.includes("LIVE_RESPONSE_OK"),
+    `Responses API text missing marker: ${text}`,
+  );
 
   return {
     id: result.response.id,
     model: result.response.model,
     status: result.response.status,
     text,
-    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
+    usage_keys: result.response.usage
+      ? Object.keys(result.response.usage).sort()
+      : [],
+  };
+});
+
+await runEndpoint("POST /beta/chat/completions strict tool", async () => {
+  const result = await client.createChatCompletion({
+    model: "deepseek-flash",
+    messages: [
+      { role: "user", content: "Call echo with text LIVE_STRICT_OK." },
+    ],
+    thinking: { type: "disabled" },
+    tool_choice: "required",
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "echo",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+            additionalProperties: false,
+          },
+        },
+      },
+    ],
+    max_tokens: 128,
+  });
+  const call = result.response.choices[0]?.message.tool_calls?.[0];
+  assert(call?.function.name === "echo", "strict tool call missing echo");
+  assert(
+    JSON.parse(call.function.arguments).text === "LIVE_STRICT_OK",
+    "strict arguments mismatch",
+  );
+  return { model: result.response.model, tool_name: call.function.name };
+});
+
+await runEndpoint("POST /responses apply_patch custom tool", async () => {
+  const result = await client.createResponse({
+    model: "deepseek-flash",
+    input:
+      "Use apply_patch to create hello.txt containing hello. Return the tool call.",
+    reasoning: { effort: "none" },
+    tools: [{ type: "custom", name: "apply_patch" }],
+    tool_choice: "required",
+    max_output_tokens: 256,
+  });
+  const call = result.response.output.find(
+    (item) => item.type === "custom_tool_call",
+  );
+  assert(
+    result.response.status === "completed",
+    "custom response was not completed",
+  );
+  assert(call?.name === "apply_patch", "custom apply_patch call missing");
+  assert(
+    typeof call.input === "string" && call.input.includes("*** Begin Patch"),
+    "custom patch input missing",
+  );
+  return {
+    model: result.response.model,
+    status: result.response.status,
+    tool_name: call.name,
   };
 });
 
@@ -159,8 +281,14 @@ await runEndpoint("POST /beta/completions FIM", async () => {
   const choice = result.response.choices?.[0];
   const text = choice?.text ?? "";
 
-  assert(result.response.object === "text_completion", "FIM completion object shape mismatch");
-  assert(result.response.model === "deepseek-flash", "FIM completion returned unexpected model");
+  assert(
+    result.response.object === "text_completion",
+    "FIM completion object shape mismatch",
+  );
+  assert(
+    result.response.model === "deepseek-flash",
+    "FIM completion returned unexpected model",
+  );
   assert(typeof text === "string", "FIM completion text was not a string");
 
   return {
@@ -168,7 +296,9 @@ await runEndpoint("POST /beta/completions FIM", async () => {
     model: result.response.model,
     finish_reason: choice?.finish_reason ?? null,
     text,
-    usage_keys: result.response.usage ? Object.keys(result.response.usage).sort() : [],
+    usage_keys: result.response.usage
+      ? Object.keys(result.response.usage).sort()
+      : [],
   };
 });
 
@@ -182,12 +312,19 @@ await runEndpoint("Files lifecycle + visual Chat", async () => {
   });
 
   try {
-    assert(uploaded.id.startsWith("file-api-"), "upload did not return a DeepSeek file ID");
+    assert(
+      uploaded.id.startsWith("file-api-"),
+      "upload did not return a DeepSeek file ID",
+    );
 
     const retrieved = await client.retrieveFile(uploaded.id);
     assert(retrieved.id === uploaded.id, "retrieve returned a different file");
 
-    const listed = await client.listFiles({ limit: 100, order: "desc", purpose: "user_data" });
+    const listed = await client.listFiles({
+      limit: 100,
+      order: "desc",
+      purpose: "user_data",
+    });
     assert(
       listed.data.some((file) => file.id === uploaded.id),
       "uploaded file was missing from list response",
@@ -199,7 +336,10 @@ await runEndpoint("Files lifecycle + visual Chat", async () => {
         {
           role: "user",
           content: [
-            { type: "text", text: "Inspect the attached image and reply exactly with LIVE_VISION_OK" },
+            {
+              type: "text",
+              text: "Inspect the attached image and reply exactly with LIVE_VISION_OK",
+            },
             { type: "file", file_id: uploaded.id },
           ],
         },
@@ -208,7 +348,10 @@ await runEndpoint("Files lifecycle + visual Chat", async () => {
       max_tokens: 32,
     });
     const text = visual.response.choices?.[0]?.message?.content ?? "";
-    assert(text.includes("LIVE_VISION_OK"), `visual chat text missing marker: ${text}`);
+    assert(
+      text.includes("LIVE_VISION_OK"),
+      `visual chat text missing marker: ${text}`,
+    );
 
     return {
       file_id: uploaded.id,
@@ -219,7 +362,10 @@ await runEndpoint("Files lifecycle + visual Chat", async () => {
     };
   } finally {
     const deleted = await client.deleteFile(uploaded.id);
-    assert(deleted.id === uploaded.id && deleted.deleted, "file cleanup did not confirm deletion");
+    assert(
+      deleted.id === uploaded.id && deleted.deleted,
+      "file cleanup did not confirm deletion",
+    );
   }
 });
 
@@ -234,22 +380,33 @@ async function runTool(tool, args) {
       version: "live-smoke",
     });
 
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const mcpClient = new Client({ name: "live-smoke-client", version: "1.0.1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const mcpClient = new Client({
+      name: "live-smoke-client",
+      version: "1.4.0",
+    });
 
-    await Promise.all([server.connect(serverTransport), mcpClient.connect(clientTransport)]);
+    await Promise.all([
+      server.connect(serverTransport),
+      mcpClient.connect(clientTransport),
+    ]);
     const result = await mcpClient.callTool({ name: tool, arguments: args });
 
     await mcpClient.close();
     await server.close();
 
-    const textBlock = result.content?.find((content) => content.type === "text");
+    const textBlock = result.content?.find(
+      (content) => content.type === "text",
+    );
 
     mcpResults[tool] = {
       ok: !result.isError,
       isError: !!result.isError,
       text_preview: textBlock?.text ? textBlock.text.slice(0, 200) : null,
-      structured_keys: result.structuredContent ? Object.keys(result.structuredContent).sort() : [],
+      structured_keys: result.structuredContent
+        ? Object.keys(result.structuredContent).sort()
+        : [],
     };
   } catch (error) {
     mcpResults[tool] = {
@@ -289,8 +446,12 @@ const summary = {
 
 console.log(JSON.stringify(summary, null, 2));
 
-const failedEndpoints = Object.values(endpointResults).filter((result) => !result.ok).length;
-const failedTools = Object.values(mcpResults).filter((result) => !result.ok).length;
+const failedEndpoints = Object.values(endpointResults).filter(
+  (result) => !result.ok,
+).length;
+const failedTools = Object.values(mcpResults).filter(
+  (result) => !result.ok,
+).length;
 
 if (failedEndpoints > 0 || failedTools > 0) {
   process.exit(1);
