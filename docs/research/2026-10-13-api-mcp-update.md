@@ -3,6 +3,28 @@
 Checked against official documentation and npm on October 13, 2026. This is a
 source-contract snapshot, not proof of live provider or hosted endpoint execution.
 
+## October 19, 2026 addendum: Search, Fetch, and Responses web search
+
+DeepSeek's October 17 update supersedes the web-search finding below. The
+current [Responses guide](https://api-docs.deepseek.com/guides/responses_api/)
+says `web_search` runs server-side with `deepseek-v4-pro` and is ignored with
+`deepseek-flash`. The MCP `create_response` input already admits that tool
+shape. DeepSeek also opened separate raw JSON
+[Search and Fetch APIs](https://api-docs.deepseek.com/guides/search/) at
+`POST /v1/tools/search` and `POST /v1/tools/fetch`; this MCP server does not
+expose standalone tools for them.
+
+The guide prices each endpoint at $0.75 per 1,000 successful requests. Only
+HTTP 200 calls with non-empty Search results or Fetch content are billed;
+these request fees are separate from model-token charges. DeepSeek's
+[October 17 announcement](https://api-docs.deepseek.com/news/news261017/)
+says server-side Search/Fetch calls through DeepSeek Harness, Claude Code, and
+Codex are temporarily free for DeepSeek API users, with per-request billing
+starting October 31, 2026 at 16:00 UTC. It does not promise the same waiver
+for other integrations. The announcement also says `deepseek-flash` now serves
+DeepSeek-V4.1-Flash-1017 without changing its calling method or model-token
+pricing. The original October 13 audit remains below as a dated record.
+
 ## Released models
 
 The current canonical models are `deepseek-flash` (DeepSeek V4.1 Flash) and

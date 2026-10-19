@@ -19,9 +19,11 @@ Version 1.4.0 uses the stable MCP TypeScript SDK v2 and serves both the
 
 ## What's current
 
-Checked against the official API docs on October 13, 2026:
+Checked against the official API docs on October 19, 2026:
 
-- The canonical fast model is `deepseek-flash`, currently DeepSeek V4.1 Flash.
+- The canonical fast model is `deepseek-flash`, now served by
+  DeepSeek-V4.1-Flash-1017. The October 17 model update did not change its API
+  calling method or model-token pricing.
 - `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are temporary aliases
   for `deepseek-flash`.
 - `deepseek-v4-pro` continues serving V4 Pro 0813. DeepSeek reversed its
@@ -74,9 +76,10 @@ provider payloads remain opt-in through `include_raw_response=true`.
   and `/beta` bases are normalized for beta requests.
 - Frequency and presence penalties remain accepted for compatibility, but
   DeepSeek ignores them.
-- Responses calls are stateless: send full input history. Built-in tools such
-  as web search are ignored by DeepSeek; accepted legacy web-search shapes
-  do not enable search. The supported custom tool is
+- Responses calls are stateless: send full input history. `web_search` runs
+  server-side with `deepseek-v4-pro`; DeepSeek ignores it with `deepseek-flash`.
+  Other built-in tool types such as `file_search`, `code_interpreter`, and `mcp`
+  are ignored. The supported custom tool is
   `{ "type": "custom", "name": "apply_patch" }`. Returned calls appear in
   `custom_tool_calls`; the client is responsible for executing them and
   sending `custom_tool_call_output` history. `output_items` preserves complete
@@ -88,6 +91,27 @@ provider payloads remain opt-in through `include_raw_response=true`.
 - `DEEPSEEK_REQUEST_TIMEOUT_MS` applies to the complete request, including
   reading the response body and streaming output. Streams are aggregated
   into one MCP result; partial tokens are not forwarded as MCP notifications.
+
+## Search and Fetch billing notice
+
+DeepSeek opened separate [Search and Fetch APIs](https://api-docs.deepseek.com/guides/search/)
+on October 17, 2026. Each costs **$0.75 per 1,000 successful requests**, billed
+by request rather than tokens or result count. A request is billable only if it
+returns HTTP 200 with a non-empty Search result or Fetch page content. These
+charges are separate from model-token charges.
+
+DeepSeek says Search and Fetch calls made through server-side tools in
+**DeepSeek Harness, Claude Code, and Codex** are temporarily free for DeepSeek
+API users; per-request billing starts **October 31, 2026 at 16:00 UTC**
+(November 1 at 00:00 Beijing time). This announced waiver names those clients;
+do not assume it covers other integrations. Check DeepSeek's current pricing
+before enabling search in an agent.
+
+This MCP server does not expose standalone Search or Fetch tools. Its
+`create_response` tool already accepts `web_search` for Pro, which DeepSeek
+runs on its server; Flash ignores it. The new raw JSON endpoints are
+`POST /v1/tools/search` and `POST /v1/tools/fetch`. The server's
+`MCP_TOOL_RATE_LIMIT` limits MCP invocations, not DeepSeek spending.
 
 ## Install
 
@@ -384,6 +408,8 @@ Chat, Responses, FIM, Files, model, and balance routes.
 ## Official references
 
 - [DeepSeek changelog](https://api-docs.deepseek.com/updates/)
+- [DeepSeek October 17 announcement](https://api-docs.deepseek.com/news/news261017/)
+- [DeepSeek Search and Fetch guide and billing](https://api-docs.deepseek.com/guides/search/)
 - [DeepSeek Responses compatibility guide](https://api-docs.deepseek.com/guides/responses_api/)
 - [DeepSeek V4.1 Flash announcement](https://api-docs.deepseek.com/news/news260910/)
 - [DeepSeek pricing and model limits](https://api-docs.deepseek.com/quick_start/pricing/)

@@ -15,9 +15,10 @@ process-local conversation memory.
 Multimodal support is visual input only. The server does not generate images,
 video, or audio.
 
-## DeepSeek model state on 2026-10-13
+## DeepSeek model state on 2026-10-19
 
-- deepseek-flash is the canonical V4.1 Flash model.
+- deepseek-flash is the canonical V4.1 Flash model, now served by
+  DeepSeek-V4.1-Flash-1017 with unchanged calling method and model-token pricing.
 - deepseek-v4-flash and deepseek-v4-flash-vision-exp are temporary aliases.
 - deepseek-v4-pro continues serving V4 Pro 0813; its planned rerouting was reversed.
 - Vision input is supported by Flash only.
@@ -148,7 +149,7 @@ DEEPSEEK_API_KEY=... npx -y deepseek-mcp-server@1
 
 ## Official sources
 
-https://api-docs.deepseek.com/news/news260910/
+https://api-docs.deepseek.com/news/news261017/
 https://api-docs.deepseek.com/quick_start/pricing/
 https://api-docs.deepseek.com/guides/vision/
 https://api-docs.deepseek.com/guides/files_api/
@@ -165,7 +166,10 @@ Chat and FIM stream_options require stream=true. FIM echo=true cannot accompany
 suffix or logprobs. Prefix and strict Chat requests automatically use the beta
 route. Request timeouts include response bodies and streamed output.
 
-Responses built-in tools, including web search, are ignored by DeepSeek.
+Responses web_search runs server-side with deepseek-v4-pro and is ignored with
+deepseek-flash. Other built-in types such as file_search, code_interpreter, and
+mcp are ignored. See the Search and Fetch billing notice below before enabling
+web_search.
 The supported custom tool is {"type":"custom","name":"apply_patch"}.
 The MCP result returns custom_tool_calls without requiring raw_response; the
 client executes these calls and supplies custom_tool_call_output history.
@@ -192,3 +196,23 @@ a gateway that authenticates every request. Origin validation is separate.
 Cancellation stops provider work and cancelled replies do not update history.
 Missing conversation resources return -32602; list-change notifications are
 not advertised. CONVERSATION_MAX_MESSAGES is a per-conversation bound.
+
+## Search and Fetch billing notice (2026-10-19)
+
+DeepSeek's separate Search and Fetch APIs are POST /v1/tools/search and POST
+/v1/tools/fetch. Each costs $0.75 per 1,000 successful requests, charged per
+request rather than per token or result. Only HTTP 200 responses with a
+non-empty Search result or Fetch page content are billed. These fees are
+separate from model-token costs. This MCP package has no standalone Search or
+Fetch tools; create_response accepts Pro web_search, which runs server-side.
+
+DeepSeek says Search and Fetch calls through server-side tools in DeepSeek
+Harness, Claude Code, and Codex are free for DeepSeek API users until
+2026-10-31 16:00 UTC (2026-11-01 00:00 Beijing time), when per-request billing
+starts. The announcement does not establish that this temporary waiver covers
+other integrations. MCP_TOOL_RATE_LIMIT is an invocation limit, not a spend cap.
+
+Sources:
+https://api-docs.deepseek.com/news/news261017/
+https://api-docs.deepseek.com/guides/search/
+https://api-docs.deepseek.com/guides/responses_api/
