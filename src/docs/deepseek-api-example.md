@@ -3,20 +3,21 @@
 Sources:
 
 - <https://api-docs.deepseek.com/news/news260910/>
+- <https://api-docs.deepseek.com/news/news261017/>
 - <https://api-docs.deepseek.com/guides/vision/>
 - <https://api-docs.deepseek.com/guides/files_api/>
 - <https://api-docs.deepseek.com/api>
 
 Current canonical model:
 
-- `deepseek-flash` (DeepSeek V4.1 Flash)
+- `deepseek-flash` (now served by DeepSeek-V4.1-Flash-1017)
 
 Temporary compatibility aliases:
 
 - `deepseek-v4-flash`
 - `deepseek-v4-flash-vision-exp`
 
-Checked October 13, 2026: `deepseek-v4-pro` continues serving V4 Pro 0813.
+Checked October 19, 2026: `deepseek-v4-pro` continues serving V4 Pro 0813.
 DeepSeek reversed its announced September rerouting plan. Vision is Flash-only.
 
 ## Chat
@@ -158,7 +159,9 @@ Chat and FIM stream_options require stream=true. FIM echo=true cannot accompany
 suffix or logprobs. Prefix and strict Chat requests automatically use the beta
 route. Request timeouts include response bodies and streamed output.
 
-Responses built-in tools, including web search, are ignored by DeepSeek.
+Responses `web_search` runs server-side with `deepseek-v4-pro`; DeepSeek ignores
+it with `deepseek-flash`. Other built-in tool types, including `file_search`
+and `code_interpreter`, are ignored.
 The supported custom tool is {"type":"custom","name":"apply_patch"}.
 The MCP result returns custom_tool_calls without requiring raw_response; the
 client executes these calls and supplies custom_tool_call_output history.
@@ -167,6 +170,25 @@ Sources:
 https://api-docs.deepseek.com/updates/
 https://api-docs.deepseek.com/guides/responses_api/
 https://api-docs.deepseek.com/api/create-completion/
+
+## Search and Fetch billing (2026-10-19)
+
+DeepSeek now offers separate raw JSON endpoints at `POST /v1/tools/search` and
+`POST /v1/tools/fetch`. Each costs $0.75 per 1,000 successful requests, separate
+from model-token charges. A request is billable only when HTTP 200 returns a
+non-empty Search result or Fetch page content. This MCP server does not expose
+standalone tools for these endpoints; its `create_response` tool accepts Pro
+`web_search`, which DeepSeek executes server-side.
+
+DeepSeek says Search/Fetch calls through server-side tools in DeepSeek Harness,
+Claude Code, and Codex are free for DeepSeek API users until October 31, 2026
+at 16:00 UTC (November 1 at 00:00 Beijing time). The announcement does not
+establish that the waiver covers this MCP server or other integrations.
+
+Sources:
+https://api-docs.deepseek.com/news/news261017/
+https://api-docs.deepseek.com/guides/search/
+https://api-docs.deepseek.com/guides/responses_api/
 
 ## Full-audit release behavior
 

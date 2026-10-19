@@ -691,7 +691,7 @@ function registerTools(
     "create_response",
     {
       description:
-        "Create a stateless DeepSeek V4.1 response using the OpenAI-compatible Responses API. Defaults to the configured model (`deepseek-flash` by default) and accepts text, image URLs, base64 images, and Files API `file_id` inputs. Use `reasoning.effort` for thinking control, `tools` for functions or the `apply_patch` custom tool (built-in web search is ignored by DeepSeek), and `stream=true` for semantic SSE aggregation. Send full input history for multi-turn work. Set `include_raw_response=true` only for provider-payload debugging.",
+        "Create a stateless DeepSeek V4.1 response using the OpenAI-compatible Responses API. Defaults to the configured model (`deepseek-flash` by default) and accepts text, image URLs, base64 images, and Files API `file_id` inputs. Use `reasoning.effort` for thinking control, `tools` for functions, the `apply_patch` custom tool, or `web_search` (server-side with `deepseek-v4-pro`, ignored with Flash; provider Search requests may incur separate charges), and `stream=true` for semantic SSE aggregation. Send full input history for multi-turn work. Set `include_raw_response=true` only for provider-payload debugging.",
       inputSchema: responseToolInputSchema,
       outputSchema: responseOutputSchema,
       annotations: {
