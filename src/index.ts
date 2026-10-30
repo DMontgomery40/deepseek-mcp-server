@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "./ensure-web-crypto.js";
 import dotenv from "dotenv";
 
 dotenv.config({ quiet: true });

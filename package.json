@@ -1,6 +1,6 @@
 {
   "name": "deepseek-mcp-server",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "mcpName": "io.github.DMontgomery40/deepseek",
   "description": "MCP server for DeepSeek Flash vision, Pro chat, Responses, FIM, Files, models, and balance APIs.",
   "type": "module",
@@ -27,8 +27,8 @@
     "inspect": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/node": "^2.1.1",
-    "@modelcontextprotocol/server": "^2.3.1",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
     "dotenv": "^18.0.7",
     "hono": "^4.13.13",
     "zod": "^4.6.7"

@@ -36,7 +36,7 @@ export interface DeepSeekApiClientOptions {
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 const DEFAULT_TIMEOUT_MS = 120000;
-const DEFAULT_USER_AGENT = "deepseek-mcp-server/1.4.0";
+const DEFAULT_USER_AGENT = "deepseek-mcp-server/1.4.1";
 export class DeepSeekApiError extends Error {
   public readonly status?: number;
   public readonly payload?: unknown;

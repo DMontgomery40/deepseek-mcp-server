@@ -25,6 +25,7 @@ interface Harness {
 async function createHarness(
   defaultModel = "deepseek-flash",
   toolRateLimit = 120,
+  conversationMaxMessages = 200,
 ): Promise<Harness> {
   const file = {
     id: "file-api-test1",
@@ -129,7 +130,7 @@ async function createHarness(
 
   const mcpServer = createDeepSeekMcpServer({
     client: api as unknown as DeepSeekApiClient,
-    conversations: new ConversationStore(200),
+    conversations: new ConversationStore(conversationMaxMessages),
     defaultModel,
     toolRateLimit,
     version: "test",
@@ -279,6 +280,57 @@ describe("createDeepSeekMcpServer", () => {
         throw new Error("expected text tool output");
       }
       expect(postReset.text).toContain("(no stored conversations)");
+    } finally {
+      await harness.serverClose();
+    }
+  });
+
+  it("keeps the system prompt and drops orphaned tool results when trimming stored history", async () => {
+    const harness = await createHarness("deepseek-flash", 120, 3);
+
+    try {
+      const first = await harness.client.callTool({
+        name: "chat_completion",
+        arguments: {
+          conversation_id: "thread-tools",
+          messages: [
+            { role: "system", content: "be terse" },
+            { role: "user", content: "weather in two cities?" },
+            {
+              role: "assistant",
+              content: "",
+              tool_calls: [
+                {
+                  id: "call-1",
+                  type: "function",
+                  function: { name: "weather", arguments: "{}" },
+                },
+                {
+                  id: "call-2",
+                  type: "function",
+                  function: { name: "weather", arguments: "{}" },
+                },
+              ],
+            },
+            { role: "tool", tool_call_id: "call-1", content: "sunny" },
+            { role: "tool", tool_call_id: "call-2", content: "rainy" },
+          ],
+        },
+      });
+      expect(first.isError).toBeFalsy();
+
+      const second = await harness.client.callTool({
+        name: "chat_completion",
+        arguments: { conversation_id: "thread-tools", message: "thanks" },
+      });
+      expect(second.isError).toBeFalsy();
+
+      const secondRequest = harness.api.createChatCompletion.mock.calls[1]?.[0];
+      const roles = secondRequest.messages.map(
+        (message: { role: string }) => message.role,
+      );
+      expect(roles).toEqual(["system", "assistant", "user"]);
+      expect(secondRequest.messages[0].content).toBe("be terse");
     } finally {
       await harness.serverClose();
     }

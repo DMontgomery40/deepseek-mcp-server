@@ -35,6 +35,28 @@ export class ConversationStore {
       return messages;
     }
 
-    return messages.slice(messages.length - this.maxMessagesPerConversation);
+    // Keep the leading system prompt(s) pinned so trimming old turns does not
+    // silently change the conversation's instructions.
+    let pinnedCount = 0;
+    while (
+      pinnedCount < messages.length &&
+      messages[pinnedCount]?.role === "system"
+    ) {
+      pinnedCount += 1;
+    }
+    const pinned = messages
+      .slice(0, pinnedCount)
+      .slice(-this.maxMessagesPerConversation);
+    const budget = this.maxMessagesPerConversation - pinned.length;
+    const rest = budget > 0 ? messages.slice(pinnedCount).slice(-budget) : [];
+
+    // A tool result must follow the assistant message carrying its tool_calls;
+    // drop tool results orphaned by the cut so the history stays valid.
+    let start = 0;
+    while (start < rest.length && rest[start]?.role === "tool") {
+      start += 1;
+    }
+
+    return [...pinned, ...rest.slice(start)];
   }
 }
