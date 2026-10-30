@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { AddressInfo } from "node:net";
 
 import {
@@ -12,6 +14,36 @@ import { createDeepSeekMcpServer } from "../src/mcp-server.js";
 import { startStreamableHttpServer } from "../src/transports/http.js";
 
 describe("Streamable HTTP transport", () => {
+  it.each([true, false])("serves tools with missing Web Crypto: %s", async (missingCrypto) => {
+    const script = `
+      import assert from "node:assert/strict";
+      const originalCrypto = globalThis.crypto;
+      if (${missingCrypto}) delete globalThis.crypto;
+      const { startStreamableHttpServer } = await import("./build/transports/http.js");
+      if (${missingCrypto}) assert.equal(globalThis.crypto, (await import("node:crypto")).webcrypto);
+      else assert.equal(globalThis.crypto, originalCrypto);
+      const { createDeepSeekMcpServer } = await import("./build/mcp-server.js");
+      const { ConversationStore } = await import("./build/conversation-store.js");
+      const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
+      const runtime = await startStreamableHttpServer(() => createDeepSeekMcpServer({
+        client: new Proxy({}, { get() { throw new Error("Unexpected provider access"); } }),
+        conversations: new ConversationStore(200), defaultModel: "deepseek-flash",
+      }), { host: "127.0.0.1", port: 0, path: "/mcp" });
+      const client = new Client({ name: "no-crypto-test", version: "test" });
+      try {
+        await client.connect(new StreamableHTTPClientTransport(
+          new URL("http://127.0.0.1:" + runtime.server.address().port + "/mcp")));
+        assert.ok((await client.listTools()).tools.some(tool => tool.name === "chat_completion"));
+      } finally {
+        await client.close();
+        await runtime.close();
+      }
+    `;
+    await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script], {
+      cwd: process.cwd(), timeout: 10_000,
+    });
+  }, 15_000);
+
   it("shares the tool admission limit across stateless HTTP server instances", async () => {
     const api = new DeepSeekApiClient({ apiKey: "test" });
     const conversations = new ConversationStore(200);

@@ -1,3 +1,4 @@
+import "../ensure-web-crypto.js";
 import {
   createServer,
   IncomingMessage,

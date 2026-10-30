@@ -101,7 +101,7 @@ const ENDPOINT_MATRIX = [
   },
 ] as const;
 
-const SERVER_VERSION = "1.4.0";
+const SERVER_VERSION = "1.4.1";
 // The HTTP factory creates a server per request. Share admission budgets by
 // provider client so recreating an MCP server cannot reset its tool limit.
 const toolBudgets = new WeakMap<

@@ -14,7 +14,7 @@ An MCP server for DeepSeek V4.1 Flash and V4 Pro APIs: text and visual chat, the
 Responses API, FIM completion, Files API lifecycle operations, model discovery,
 balance checks, and bounded in-memory conversations.
 
-Version 1.4.0 uses the stable MCP TypeScript SDK v2 and serves both the
+Version 1.4.1 uses the stable MCP TypeScript SDK v2 and serves both the
 2026-07-28 protocol and stateless legacy clients.
 
 ## What's current
@@ -353,6 +353,14 @@ the process-local store. Restarting the process clears this store.
 - Four Files API tools and visual inputs were added.
 - Existing tool names and `include_raw_response` behavior remain compatible.
 
+## Release 1.4.1
+
+Preserves leading system instructions and removes orphaned tool results when
+conversation history reaches its configured cap. Refreshes the MCP Node adapter
+and locks `@hono/node-server` to 2.1.5 to clear GHSA-rmxm-3fg6-px4f. This server
+does not use the affected `serveStatic` helper. HTTP startup supplies Node's Web
+Crypto only when the global is missing. Node >=20 support is unchanged.
+
 ## Release 1.4.0
 
 This release refreshes MCP dependencies, corrects Pro availability and Responses
@@ -391,7 +399,7 @@ visual input, and a Files upload/retrieve/list/delete lifecycle with cleanup.
 ## Registry identity
 
 - MCP Registry: `io.github.DMontgomery40/deepseek`
-- npm: `deepseek-mcp-server@1.4.0`
+- npm: `deepseek-mcp-server@1.4.1`
 - OCI: `docker.io/dmontgomery40/deepseek-mcp-server:0.5.0` is the last
   published image and does not contain the current npm feature set.
 
